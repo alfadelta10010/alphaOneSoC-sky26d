@@ -6,13 +6,35 @@ SIM ?= icarus
 FST ?= -fst # Use more efficient FST format
 TOPLEVEL_LANG ?= verilog
 SRC_DIR = $(PWD)/../src
-PROJECT_SOURCES = project.v
+PROJECT_SOURCES = tt_um_alfadelta10010_alphaone_soc.v \
+                  alphaone_soc.v \
+                  fyracore.v \
+                  alu.v \
+                  branchCtrl.v \
+                  clint.v \
+                  compressed_decoder.v \
+                  controller.v \
+                  csr.v \
+                  decoder.v \
+                  muldiv.v \
+                  pmp.v \
+                  regFile.v \
+                  signExt.v \
+                  qspi_ctrl.v \
+                  mem_ctrl.v \
+                  soc_bus.v \
+                  uart.v \
+                  gpio.v
 
 ifneq ($(GATES),yes)
 
 # RTL simulation:
 SIM_BUILD				= sim_build/rtl
 VERILOG_SOURCES += $(addprefix $(SRC_DIR)/,$(PROJECT_SOURCES))
+
+# The register file has no reset. Start it at X, as the netlist does, not at
+# the zeros src/regFile.v would otherwise give a simulation.
+PLUSARGS        += +RF_X
 
 else
 
@@ -35,6 +57,7 @@ endif
 COMPILE_ARGS 		+= -I$(SRC_DIR)
 
 # Include the testbench sources:
+VERILOG_SOURCES += $(PWD)/qspi_pmod_model.v
 VERILOG_SOURCES += $(PWD)/tb.v
 TOPLEVEL = tb
 
