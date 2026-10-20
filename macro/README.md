@@ -38,3 +38,17 @@ obtained.
 - The liberty is a placeholder, not a characterisation: setup 2.0 ns, hold
   0.2 ns, clock-to-output 4.0 ns, one nominal corner re-used for every corner.
 - The LEF names the power pin `VDPWR`, the liberty `VPWR`.
+
+## The hold guard band
+
+`rf_top.ff-hold-guard.lib` is the one derived file: `rf_top.lib` with the ten
+input `hold_rising` values raised from 0.2 ns to 0.4 ns, nothing else
+changed. `src/config.json` loads it at the ff corners only, and `rf_top.lib`
+at tt and ss. The macro's real hold has never been measured, and a hold
+failure, unlike a setup one, does not go away with a slower clock. With it,
+every macro input of the hardened design survives 0.96 ns of real hold at ff
+(slack plus the liberty's hold plus the 0.25 ns clock uncertainty), more than
+the 0.68 to 0.70 ns of the designs that have fabricated this macro.
+
+The `lib` keys in `src/config.json` are corner wildcards and must not overlap:
+LibreLane loads every file whose key matches a corner.

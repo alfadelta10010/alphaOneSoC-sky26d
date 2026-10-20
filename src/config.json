@@ -34,12 +34,17 @@
   "//": "Configuration docs: https://librelane.readthedocs.io/en/latest/reference/configuration.html",
 
   "//": "The register file macro, rf_top (see macro/README.md), at the left edge, rotated.",
+  "//": "The ff corners read a copy of its liberty with the input hold raised to 0.4 ns.",
   "MACROS": {
     "rf_top": {
       "instances": { "soc.cpu.rf.rf_macro": { "location": [3, 189.0], "orientation": "E" } },
       "gds": ["dir::../macro/rf_top.gds.gz"],
       "lef": ["dir::../macro/rf_top.lef"],
-      "lib": { "*": ["dir::../macro/rf_top.lib"] }
+      "lib": {
+        "*_tt_025C_1v80": ["dir::../macro/rf_top.lib"],
+        "*_ss_100C_1v60": ["dir::../macro/rf_top.lib"],
+        "*_ff_n40C_1v95": ["dir::../macro/rf_top.ff-hold-guard.lib"]
+      }
     }
   },
   "PDN_MACRO_CONNECTIONS": ["soc.cpu.rf.rf_macro VPWR VGND VDPWR VGND"],
