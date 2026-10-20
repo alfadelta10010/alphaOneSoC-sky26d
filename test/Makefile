@@ -19,6 +19,7 @@ PROJECT_SOURCES = tt_um_alfadelta10010_alphaone_soc.v \
                   muldiv.v \
                   pmp.v \
                   regFile.v \
+                  rf_top.v \
                   signExt.v \
                   qspi_ctrl.v \
                   mem_ctrl.v \
@@ -31,10 +32,6 @@ ifneq ($(GATES),yes)
 # RTL simulation:
 SIM_BUILD				= sim_build/rtl
 VERILOG_SOURCES += $(addprefix $(SRC_DIR)/,$(PROJECT_SOURCES))
-
-# The register file has no reset. Start it at X, as the netlist does, not at
-# the zeros src/regFile.v would otherwise give a simulation.
-PLUSARGS        += +RF_X
 
 else
 
@@ -51,7 +48,17 @@ VERILOG_SOURCES += $(PDK_ROOT)/sky130A/libs.ref/sky130_fd_sc_hd/verilog/sky130_f
 # this gets copied in by the GDS action workflow
 VERILOG_SOURCES += $(PWD)/gate_level_netlist.v
 
+# The register file macro is a cell of the netlist; its model comes from src/.
+VERILOG_SOURCES += $(SRC_DIR)/rf_top.v
+
 endif
+
+# The register file macro has no reset: start its words at X, as on the chip,
+# not at the zeros the model would otherwise give. And make the macro answer X
+# to a read of the word written on the same edge, whose timing its views do not
+# give: the design serves that case from a bypass of its own and must not use
+# the macro's answer.
+PLUSARGS        += +RF_X +RF_COLLIDE_X
 
 # Allow sharing configuration between design and testbench via `include`:
 COMPILE_ARGS 		+= -I$(SRC_DIR)

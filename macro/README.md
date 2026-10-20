@@ -2,7 +2,8 @@
 
 Sylvain Munaut's ("tnt", smunaut) register file for Tiny Tapeout: 32 words of
 32 bits, one write port and two read ports, a custom 12-transistor bit cell
-with latches at its ports, 132.64 x 118.70 um.
+with latches at its ports, 132.64 x 118.70 um. FyraCore keeps its 31 general
+registers in it. `src/rf_top.v` is its simulation model.
 
 ## Provenance
 
@@ -31,7 +32,9 @@ obtained.
 - Synchronous read: `ra_addr`/`rb_addr` are captured on the rising edge of
   `clk`, and `ra_data`/`rb_data` follow about 4 ns later.
 - Write-first: a read of the word written on the same edge returns the new
-  data. Its timing is not characterised.
+  data. Its timing is not characterised, so `src/regFile.v` serves that case
+  from a one-entry bypass of its own; all it asks of the macro is that the
+  write lands.
 - The liberty is a placeholder, not a characterisation: setup 2.0 ns, hold
   0.2 ns, clock-to-output 4.0 ns, one nominal corner re-used for every corner.
 - The LEF names the power pin `VDPWR`, the liberty `VPWR`.
