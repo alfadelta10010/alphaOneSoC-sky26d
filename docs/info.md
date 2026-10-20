@@ -15,7 +15,12 @@ and a few GPIO pins.
 
 **The processor** is FyraCore, an RV32IMAC core with the Zicsr, Zicntr and
 Zifencei extensions. It has machine and user modes, four PMP regions, and the
-standard timer and software interrupts from a CLINT.
+standard timer and software interrupts from a CLINT. Its 31 general registers
+live in a hard macro, Sylvain Munaut's rf_top register file (CERN-OHL-W-2.0;
+`macro/README.md`).
+
+**The clock** is 62.5 MHz: the design meets timing at that frequency at every
+corner, the slow one (100 C, 1.60 V) included.
 
 **Memory** is the QSPI Pmod: a 16 MB flash and two 8 MB PSRAMs on one quad
 bus. There is no boot ROM. Out of reset the core fetches its first instruction
@@ -35,7 +40,7 @@ An access outside these windows raises an access fault.
 
 **The UART** is fixed at 8N1, and its baud rate is the clock divided by 16
 times the divisor. The divisor resets to 27, which is 115200 baud at a 50 MHz
-clock. It has no FIFOs. A write to the transmit register waits until the
+clock; at 62.5 MHz set it to 34 for 115200. It has no FIFOs. A write to the transmit register waits until the
 previous character has left, and RTS# tells the sender when the receiver has
 room for a character.
 
@@ -67,7 +72,8 @@ GPIO OUT `0x09`.
 `ui_in[0]` during reset picks when the chip samples data read from the Pmod:
 low samples two clocks after the SCK edge that launched the data, high samples
 three clocks after. Use high at clock frequencies where two clock periods are
-too short for the data to make the round trip through the pads.
+too short for the data to make the round trip through the pads: high at
+62.5 MHz, low at 50 MHz and below.
 
 The tests in `test/` run a program that exercises every pin; `test/README.md`
 says how to run them.
