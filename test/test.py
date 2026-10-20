@@ -340,8 +340,11 @@ async def test_pins(dut):
 @cocotb.test(timeout_time=2, timeout_unit="ms")
 async def test_pins_slow_devices(dut):
     """The devices answer just under one SCK period late: the most that
-    qspi_rd_late = 0 has to take."""
-    await pins(dut, rd_late=0, delay_ns=19, hold_ns=1)
+    qspi_rd_late = 0 has to take. 18 ns, not 19: at 19 the data lands 1 ns
+    before the sampling edge, and at gate level, where every flop has a 1 ns
+    clock-to-output and SCK reaches its pin 1 ns later, it lands in the very
+    time step of that edge -- a race inside the simulator, not in the chip."""
+    await pins(dut, rd_late=0, delay_ns=18, hold_ns=1)
 
 
 @cocotb.test(timeout_time=2, timeout_unit="ms")
