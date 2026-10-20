@@ -26,7 +26,7 @@ module fyracore #(
     //
     // Anything outside these windows has no device behind it, so an access
     // raises an access fault (cause 1 / 5 / 7) rather than reaching the bus.
-    // The defaults are the SoC's map (docs/soc-architecture.md):
+    // The defaults are the SoC's map (docs/info.md):
     //
     //   0x2000_0000 - 0x20FF_FFFF  flash   16 MB  read, execute (QSPI CS0)
     //   0x8000_0000 - 0x80FF_FFFF  PSRAM   16 MB  read, write, execute,
@@ -581,7 +581,7 @@ module fyracore #(
     // latched during that very stall cycle, against the old configuration.
     // So the write refetches the next instruction the way FENCE.I does,
     // and it reaches EX only after the write has committed. One fetch per
-    // PMP write (tests/directed/pmp_refetch).
+    // PMP write.
     wire ex_pmp_csr_wr = ifex_valid && ex_csr_writes &&
                          (ex_csr_addr == 12'h3A0 || ex_csr_addr[11:2] == 10'b0011_1011_00);
     // No fetch behind an instruction that decides the next pc: a branch or
@@ -783,9 +783,9 @@ module fyracore #(
     // or OP-IMM: it makes no memory access and no jump, so the three address
     // causes cannot be raised for it, and it is no SYSTEM instruction, CSR
     // access, LR or FENCE, which leaves a fetch fault, a bad funct7 and the
-    // two compressed-instruction causes (tb_controller checks both halves
-    // for every opcode, funct3 and funct7; the testbench checks
-    // muldiv_want against ex_trap_decode on every clock). Using ex_trap
+    // two compressed-instruction causes (both halves checked for every
+    // opcode, funct3 and funct7, and muldiv_want against ex_trap_decode on
+    // every clock of the core's simulations). Using ex_trap
     // itself put the ALU, the PMA compare and the PMP check in front of
     // `stall`, and through it in front of the enable of every pipeline
     // register; all of ex_trap_decode still put the SYSTEM and CSR checks
@@ -1471,8 +1471,8 @@ module fyracore #(
                 // left to the implementation. Keeping the reservation is what
                 // Spike does, so the lockstep comparison stays aligned past
                 // the SC -- clearing it made every unconstrained LR..store..SC
-                // sequence diverge there, which hid ~26% of each rrag
-                // program from the comparison. Forward progress is not
+                // sequence diverge there, which hid ~26% of each random
+                // test program from the comparison. Forward progress is not
                 // affected: a constrained LR/SC loop contains no stores.
             end
 

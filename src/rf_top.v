@@ -1,4 +1,4 @@
-// rf_top: Sylvain Munaut's 32 x 32 register-file hard macro (macro/rf_top/),
+// rf_top: Sylvain Munaut's 32 x 32 register-file hard macro (macro/),
 // as a simulation model. The same model serves TinyTapeout's gate-level test,
 // which compiles it next to the netlist with GL_TEST (and so its power pins).
 //
@@ -11,15 +11,16 @@
 (* blackbox *)
 `endif
 //
-// Behaviour, as in the macro's own model (macro/rf_top/rf_top.upstream.v,
-// which this follows statement for statement): on each rising edge the write
+// Behaviour, as in the macro's own model (src/rf_top.v of
+// MichaelBell/ttsky25b-femtorv-soc @ 50aa37f, which this follows statement
+// for statement): on each rising edge the write
 // (w_ena, w_addr, w_data) is done and both read addresses are captured; each
 // read port then gives the captured word, write-first -- a read of the word
 // written on the same edge gets the new data. Word 0 is an ordinary word.
 //
 // There is no reset. The storage starts at 0, as Spike's registers do, unless
 // +RF_X is given; then it starts at X like the silicon's unknown state, so a
-// read of a register nothing wrote shows up as an X (see tests/directed/run.sh).
+// read of a register nothing wrote shows up as an X.
 //
 // +RF_COLLIDE_X departs from the macro's model on purpose: a read of the word
 // written on the same edge returns X instead of the new data. The write

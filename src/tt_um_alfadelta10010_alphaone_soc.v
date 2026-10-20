@@ -1,6 +1,5 @@
-// TinyTapeout top level: alphaone_soc on the project's 24 pins. The pinout,
-// the board wiring and the reasons for both are in
-// docs/pins-and-peripherals.md.
+// TinyTapeout top level: alphaone_soc on the project's 24 pins. The pinout
+// is in info.yaml, the board wiring in docs/info.md.
 //
 //   ui_in[7:0]   GPIO IN, all eight pins. Two of them have a second job:
 //   ui_in[0]       the qspi_rd_late strap, read during reset (see below)

@@ -2,7 +2,7 @@
 // QSPI engine for the TinyTapeout QSPI Pmod, the CLINT, the UART and the
 // GPIO block (with the OLED's SPI transmitter).
 //
-// Address map (docs/soc-architecture.md):
+// Address map (docs/info.md):
 //
 //   0x2000_0000  flash   16 MB  read, execute        QSPI CS0
 //   0x8000_0000  PSRAM   16 MB  read, write, execute QSPI CS1 (A) / CS2 (B)
@@ -11,7 +11,7 @@
 //   0x1001_0000  GPIO    OUT / IN / SPI DATA / SPI CTRL (src/gpio.v)
 //   0x1002_0000  syscon  reserved, reads 0
 //
-// Chip pins (docs/pins-and-peripherals.md): the UART's TX and RTS# are
+// Chip pins (info.yaml, docs/info.md): the UART's TX and RTS# are
 // uo_out[4] and [5], and RX is ui_in[3]; gpio_out drives the other six
 // uo_out pins (gpio_out[5:4] are always 0 -- those pins are the UART's),
 // and gpio_in reads all eight ui_in pins, RX and the rd_late strap
