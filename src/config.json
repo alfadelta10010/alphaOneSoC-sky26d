@@ -17,10 +17,10 @@
 
   "//": "CLOCK_PERIOD - Increase this in case you are getting setup time violations.",
   "//": "The value is in nanoseconds, so 20ns == 50MHz.",
-  "CLOCK_PERIOD": 20,
+  "CLOCK_PERIOD": 16,
 
   "//": "Hold slack margin - Increase them in case you are getting hold violations.",
-  "PL_RESIZER_HOLD_SLACK_MARGIN": 0.1,
+  "PL_RESIZER_HOLD_SLACK_MARGIN": 0.2,
   "GRT_RESIZER_HOLD_SLACK_MARGIN": 0.05,
 
   "//": "RUN_LINTER, LINTER_INCLUDE_PDK_MODELS - Disabling the linter is not recommended!",
@@ -32,6 +32,8 @@
   "CLOCK_PORT": "clk",
 
   "//": "Configuration docs: https://librelane.readthedocs.io/en/latest/reference/configuration.html",
+
+  "//": "AlphaOneSoC: closes timing at every corner at 16 ns (62.5 MHz), 3x4 tiles.",
 
   "//": "The register file macro, rf_top (see macro/README.md), at the left edge, rotated.",
   "//": "The ff corners read a copy of its liberty with the input hold raised to 0.4 ns.",
@@ -54,6 +56,21 @@
   "SYNTH_STRATEGY": "AREA 3",
   "MAX_FANOUT_CONSTRAINT": 20,
   "EXTRA_EXCLUDED_CELLS": ["sky130_fd_sc_hd__clkdlybuf4s*", "sky130_fd_sc_hd__dlymetal6s*"],
+
+  "//": "The wire estimate before routing, per corner, at what extraction of this design measures",
+  "//": "(0.21 to 0.23 fF/um instead of the technology LEF's average 0.0815), so the resizer repairs",
+  "//": "the paths that sign off slow. It makes short paths look slower too: hence the 0.2 ns hold margin.",
+  "LAYERS_RC": {
+    "min_*": { "met1": { "res": 8.929e-4, "cap": 1.92e-4 }, "met2": { "res": 8.929e-4, "cap": 1.92e-4 },
+               "met3": { "res": 1.567e-4, "cap": 1.92e-4 }, "met4": { "res": 1.567e-4, "cap": 1.92e-4 } },
+    "nom_*": { "met1": { "res": 8.929e-4, "cap": 2.16e-4 }, "met2": { "res": 8.929e-4, "cap": 2.16e-4 },
+               "met3": { "res": 1.567e-4, "cap": 2.16e-4 }, "met4": { "res": 1.567e-4, "cap": 2.16e-4 } },
+    "max_*": { "met1": { "res": 8.929e-4, "cap": 2.4e-4 },  "met2": { "res": 8.929e-4, "cap": 2.4e-4 },
+               "met3": { "res": 1.567e-4, "cap": 2.4e-4 },  "met4": { "res": 1.567e-4, "cap": 2.4e-4 } }
+  },
+  "SIGNAL_WIRE_RC_LAYERS": ["met1", "met2", "met3", "met4"],
+  "CLOCK_WIRE_RC_LAYERS": ["met1", "met2", "met3", "met4"],
+  "PL_RESIZER_SETUP_SLACK_MARGIN": 0.5,
 
   "//": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
   "//": "!!! DO NOT CHANGE ANYTHING BELOW THIS POINT !!!",
