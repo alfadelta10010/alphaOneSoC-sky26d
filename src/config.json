@@ -20,7 +20,7 @@
   "CLOCK_PERIOD": 16,
 
   "//": "Hold slack margin - Increase them in case you are getting hold violations.",
-  "PL_RESIZER_HOLD_SLACK_MARGIN": 0.2,
+  "PL_RESIZER_HOLD_SLACK_MARGIN": 0.1,
   "GRT_RESIZER_HOLD_SLACK_MARGIN": 0.05,
 
   "//": "RUN_LINTER, LINTER_INCLUDE_PDK_MODELS - Disabling the linter is not recommended!",
@@ -33,13 +33,13 @@
 
   "//": "Configuration docs: https://librelane.readthedocs.io/en/latest/reference/configuration.html",
 
-  "//": "AlphaOneSoC: closes timing at every corner at 16 ns (62.5 MHz), 3x4 tiles.",
+  "//": "AlphaOneSoC: 3x4 tiles, hardened against 16 ns. The routed layout closes timing at every corner at 16.67 ns (60 MHz).",
 
-  "//": "The register file macro, rf_top (see macro/README.md), at the left edge, rotated.",
+  "//": "The register file macro, rf_top (see macro/README.md), low on the left edge, rotated, with room to route under its lower pin row.",
   "//": "The ff corners read a copy of its liberty with the input hold raised to 0.4 ns.",
   "MACROS": {
     "rf_top": {
-      "instances": { "soc.cpu.rf.rf_macro": { "location": [3, 189.0], "orientation": "E" } },
+      "instances": { "soc.cpu.rf.rf_macro": { "location": [3, 60], "orientation": "E" } },
       "gds": ["dir::../macro/rf_top.gds.gz"],
       "lef": ["dir::../macro/rf_top.lef"],
       "lib": {
