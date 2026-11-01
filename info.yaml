@@ -3,7 +3,7 @@ project:
   title:        "AlphaOneSoC"      # Project title
   author:       "Abhiram Dasika"      # Your name
   discord:      ""      # Your discord username, for communication and automatically assigning you a Tapeout role (optional)
-  description:  "RV32IMAC RISC-V SoC that runs from QSPI flash and PSRAM, with a UART, GPIO and an SPI transmitter"      # One line description of what your project does
+  description:  "RV32IMAC RISC-V SoC that runs from QSPI flash and PSRAM, with a UART, GPIO, an SPI transmitter and a watchdog"      # One line description of what your project does
   language:     "Verilog" # other examples include SystemVerilog, Amaranth, VHDL, etc
   clock_hz:     62500000       # Clock frequency in Hz (or 0 if not applicable)
 
@@ -37,6 +37,7 @@ project:
     - "soc_bus.v"
     - "uart.v"
     - "gpio.v"
+    - "syscon.v"
 
 # The pinout of your project. Leave unused pins blank. DO NOT delete or add any pins.
 # This section is for the datasheet/website. Use descriptive names (e.g., RX, TX, MOSI, SCL, SEG_A, etc.).

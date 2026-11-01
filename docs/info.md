@@ -32,7 +32,7 @@ the clock frequency.
 | `0x0200_0000` | 64 KB | CLINT: `msip`, `mtimecmp`, `mtime`                |
 | `0x1000_0000` | 64 KB | UART, a 16550 subset with byte-wide registers     |
 | `0x1001_0000` | 64 KB | GPIO: `OUT`, `IN`, SPI `DATA`, SPI `CTRL`         |
-| `0x1002_0000` | 64 KB | reserved, reads 0                                 |
+| `0x1002_0000` | 64 KB | system controller and watchdog                    |
 | `0x2000_0000` | 16 MB | flash: read and execute                           |
 | `0x8000_0000` | 16 MB | PSRAM: read, write and execute                    |
 
@@ -49,12 +49,21 @@ pins. It also has an SPI transmitter (mode 3, MSB first) that takes over
 `uo_out[1]` as MOSI and `uo_out[3]` as SCK when enabled, so that a display can
 be written a byte per store.
 
+**The system controller** at `0x1002_0000` reboots the chip (store `0x7777`
+to `+0x00`) or powers it off until the next `rst_n` (`0x5555`). It keeps a
+reset cause (`+0x04`: pin, software, watchdog; write 1 to clear), a boot-mode
+byte that survives a reboot (`+0x08`), a chip ID (`+0x0C`, `0x4131_5301`) and
+the `ui_in[0]` strap as sampled at the last pin reset (`+0x10`). A watchdog
+in the Synopsys DesignWare layout sits at `+0x100`, so Linux's `dw_wdt`
+driver runs it; when it expires it reboots the chip.
+
 **Reset.** `rst_n` is asynchronous. A low pulse of any length resets the chip,
 with the clock running or stopped, and the chip leaves reset on the second
 clock edge after `rst_n` rises. While it is in reset all eight bidirectional
 pins are inputs, so the flash can be programmed from outside with the chip
 held in reset, and the outputs hold their idle values: UART TX and RTS# high,
-GPIO OUT `0x09`.
+GPIO OUT `0x09`. A reboot from the system controller or the watchdog looks
+the same at the pins.
 
 ## How to test
 
