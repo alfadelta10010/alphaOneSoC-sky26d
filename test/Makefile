@@ -26,6 +26,7 @@ PROJECT_SOURCES = tt_um_alfadelta10010_alphaone_soc.v \
                   soc_bus.v \
                   uart.v \
                   gpio.v \
+                  spi.v \
                   syscon.v
 
 ifneq ($(GATES),yes)

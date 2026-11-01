@@ -10,8 +10,8 @@ You can also include images in this folder and reference them in the markdown. E
 ## How it works
 
 AlphaOneSoC is a 32-bit RISC-V system on a chip. It keeps its program and its
-memory on the Tiny Tapeout QSPI Pmod, and talks to the outside through a UART
-and a few GPIO pins.
+memory on the Tiny Tapeout QSPI Pmod, and talks to the outside through a UART,
+an SPI controller and a few GPIO pins.
 
 **The processor** is FyraCore, an RV32IMAC core with the Zicsr, Zicntr and
 Zifencei extensions. It has machine and user modes, four PMP regions, and the
@@ -31,7 +31,7 @@ the clock frequency.
 |---------------|-------|---------------------------------------------------|
 | `0x0200_0000` | 64 KB | CLINT: `msip`, `mtimecmp`, `mtime`                |
 | `0x1000_0000` | 64 KB | UART, a 16550 subset with byte-wide registers     |
-| `0x1001_0000` | 64 KB | GPIO: `OUT`, `IN`, SPI `DATA`, SPI `CTRL`         |
+| `0x1001_0000` | 64 KB | GPIO: `OUT`, `IN`, `SPICTL`; SPI controller       |
 | `0x1002_0000` | 64 KB | system controller and watchdog                    |
 | `0x2000_0000` | 16 MB | flash: read and execute                           |
 | `0x8000_0000` | 16 MB | PSRAM: read, write and execute                    |
@@ -45,9 +45,28 @@ previous character has left, and RTS# tells the sender when the receiver has
 room for a character.
 
 **The GPIO block** drives six of the output pins and reads all eight input
-pins. It also has an SPI transmitter (mode 3, MSB first) that takes over
-`uo_out[1]` as MOSI and `uo_out[3]` as SCK when enabled, so that a display can
-be written a byte per store.
+pins, through a two-flop synchroniser. OUT bit 7 is the SD card's CS#.
+
+| Offset | Register                                                          |
+|--------|-------------------------------------------------------------------|
+| `0x00` | OUT: bit *i* drives `uo_out[i]`; bits 4 and 5 read 0. Resets `0x89` |
+| `0x04` | IN: `ui_in[7:0]`                                                  |
+| `0x0C` | SPICTL: bit 0 EN (resets 0), bit 8 BUSY                           |
+| `0x20` | SPI RXDATA                                                        |
+| `0x24` | SPI TXDATA                                                        |
+| `0x28` | SPI STATUS: bit 0 TXE, bit 1 TXR                                  |
+| `0x2C` | SPI CONTROL: bit 0 CPHA, bit 1 CPOL; resets to mode 3             |
+| `0x30` | SPI BAUD: SCK = clock / (2 x (BAUD + 1)); resets `0xFF`           |
+
+The registers repeat every 64 bytes through the window.
+
+**The SPI controller** is a master for an SD card and a display on one bus.
+Its registers behave like OpenCores tiny_spi, so Linux's `spi-oc-tiny` driver
+runs it, with the chip selects on GPIO OUT. With EN set it owns `uo_out[1]`
+(MOSI) and `uo_out[3]` (SCK), and samples MISO on `ui_in[1]`; both outputs
+come from flops. A byte takes 16 x (BAUD + 1) clocks, all four SPI modes
+are supported, and a write to TXDATA while a byte is still waiting stalls
+the processor until there is room. Set EN only with every CS# high.
 
 **The system controller** at `0x1002_0000` reboots the chip (store `0x7777`
 to `+0x00`) or powers it off until the next `rst_n` (`0x5555`). It keeps a
@@ -62,8 +81,8 @@ with the clock running or stopped, and the chip leaves reset on the second
 clock edge after `rst_n` rises. While it is in reset all eight bidirectional
 pins are inputs, so the flash can be programmed from outside with the chip
 held in reset, and the outputs hold their idle values: UART TX and RTS# high,
-GPIO OUT `0x09`. A reboot from the system controller or the watchdog looks
-the same at the pins.
+GPIO OUT `0x89` (`uo_out` = `0xB9`). A reboot from the system controller
+or the watchdog looks the same at the pins.
 
 ## How to test
 
@@ -94,4 +113,10 @@ says how to run them.
   B on `uio[7]`.
 * A UART terminal. The Tiny Tapeout demo board's RP2350 can be one.
 * Optional, on the output header: a Digilent PmodOLEDrgb (SSD1331) driven by
-  the SPI transmitter, or a PmodKYPD keypad scanned through the GPIO pins.
+  the SPI controller, or a PmodKYPD keypad scanned through the GPIO pins.
+* Optional: an SD card (for example a Digilent PmodMicroSD) on the same SPI
+  bus: MOSI `uo_out[1]`, SCK `uo_out[3]`, MISO `ui_in[1]` and CS#
+  `uo_out[7]`. With the card fitted, DIP switch 2 must be off. On every boot,
+  before any other SPI traffic, clock at least 74 cycles with every CS# high
+  and then send CMD0 to the card, so that it is in SPI mode before the
+  display is written.

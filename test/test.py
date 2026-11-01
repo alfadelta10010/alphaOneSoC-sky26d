@@ -25,8 +25,8 @@ FIRMWARE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "firmware")
 OUT_VALS = [0x01, 0x02, 0x04, 0x08, 0x40, 0x80, 0xFF, 0x00, 0x09]
 IN_PATS = [0x01, 0x02, 0x04, 0x10, 0x20, 0x40, 0x80, 0x00, 0xF7]
 
-# uo_out while the chip is in reset: TX and RTS# high, GPIO OUT 0x09
-UO_RESET = "00111001"
+# uo_out while the chip is in reset: TX and RTS# high, GPIO OUT 0x89
+UO_RESET = "10111001"
 
 
 def bits(signal):
