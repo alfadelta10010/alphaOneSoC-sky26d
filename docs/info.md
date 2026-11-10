@@ -19,13 +19,15 @@ standard timer and software interrupts from a CLINT. Its 31 general registers
 live in a hard macro, Sylvain Munaut's rf_top register file (CERN-OHL-W-2.0;
 `macro/README.md`).
 
-**The clock** is 60 MHz: the design meets timing at that frequency at every
-corner, the slow one (100 C, 1.60 V) included.
+**The clock** is 62.5 MHz (16 ns): the design meets timing at that frequency
+at every corner, the slow one (100 C, 1.60 V) included. The board may also
+run it at 60 MHz.
 
 **Memory** is the QSPI Pmod: a 16 MB flash and two 8 MB PSRAMs on one quad
 bus. There is no boot ROM. Out of reset the core fetches its first instruction
 from the first byte of flash and runs in place from there. SCK runs at half
-the clock frequency.
+the clock frequency. Flash reads stream by default, and double-data-rate
+(DDR) flash reads can be switched on by software; see **Flash reads** below.
 
 | Address       | Size  | What                                              |
 |---------------|-------|---------------------------------------------------|
@@ -39,9 +41,9 @@ the clock frequency.
 An access outside these windows raises an access fault.
 
 **The UART** is fixed at 8N1, and its baud rate is the clock divided by 16
-times the divisor. The divisor resets to 27, which is 115200 baud at a 50 MHz
-clock; at 60 MHz set it to 33 for 115200 (113,636 baud, -1.4 %). It has no
-FIFOs. A write to the transmit register waits until the previous character
+times the divisor. The divisor resets to 34, which is 114,890 baud (-0.27 %
+from 115200) at 62.5 MHz; at 60 MHz set it to 33 (113,636 baud, -1.4 %). It
+has no FIFOs. A write to the transmit register waits until the previous character
 has left, and RTS# tells the sender when the receiver has room for a
 character.
 
@@ -72,10 +74,57 @@ the processor until there is room. Set EN only with every CS# high.
 **The system controller** at `0x1002_0000` reboots the chip (store `0x7777`
 to `+0x00`) or powers it off until the next `rst_n` (`0x5555`). It keeps a
 reset cause (`+0x04`: pin, software, watchdog; write 1 to clear), a boot-mode
-byte that survives a reboot (`+0x08`), a chip ID (`+0x0C`, `0x4131_5301`) and
-the `ui_in[0]` strap as sampled at the last pin reset (`+0x10`). A watchdog
-in the Synopsys DesignWare layout sits at `+0x100`, so Linux's `dw_wdt`
-driver runs it; when it expires it reboots the chip.
+byte that survives a reboot (`+0x08`), a chip ID (`+0x0C`, `0x4131_5301`),
+the two straps as sampled at the last pin reset (`+0x10`, STRAPS: bit 0 is
+`ui_in[0]`, bit 1 is `ui_in[2]`, the no-stream strap) and the flash-read
+configuration (`+0x1C`, QSPI_CFG, below). A watchdog in the Synopsys
+DesignWare layout sits at `+0x100`, so Linux's `dw_wdt` driver runs it; when
+it expires it reboots the chip.
+
+**Flash reads.** The flash is read with the quad I/O read (`EBh`, command on
+IO0, address and data on all four lines). Two things change how, both set in
+QSPI_CFG at `0x1002_001C` (word, byte lane 0):
+
+| Bits  | Field   | Meaning                                                              | Resets to               |
+|-------|---------|----------------------------------------------------------------------|-------------------------|
+| [0]   | STREAM  | a read that continues where the last one ended keeps chip select low and sends only the data clocks | 1, or 0 if `ui_in[2]` was high at the pin reset |
+| [1]   | DDR     | every flash read is a double-data-rate read (`EDh`, both SCK edges)   | 0                       |
+| [4:2] | DDR_CAP | the half-clock point at which a DDR nibble is captured, 0 to 7       | 2                       |
+
+* **Streaming** is on by default: instruction fetch runs straight through
+  flash at 8 SCK clocks per 4 bytes, instead of a new command and address
+  (about 28 SCK) for every fetch. A jump, a data access or any other request
+  closes the stream first (chip select high for two clocks). Streaming is
+  flash only; PSRAM accesses are unchanged. Hold `ui_in[2]` high through the
+  pin reset to start with streaming off (STREAM = 0), for instance to
+  separate a streaming problem from other faults. Software can also clear
+  STREAM; no fence or jump is needed after writing QSPI_CFG, and a read in
+  flight finishes in the mode it started in.
+* **DDR flash reads** are off at reset. Every reset (pin, system-controller
+  reboot, watchdog expiry) clears QSPI_CFG to SDR, `DDR_CAP` 2, so a reboot
+  always comes back in the mode every flash accepts. DDR needs the
+  Winbond W25Q128JV-**DTR** flash (the `-IM` part has no DTR read) with its
+  Quad Enable bit set. The flash launches a nibble on every SCK edge, and
+  the time it takes to reach the chip (pads, board, Pmod) is not known in
+  advance, so software chooses `DDR_CAP`. The routine to follow: run from
+  PSRAM (a fetch from flash closes the stream and would run in the mode
+  under test); copy a block of flash into PSRAM with DDR off; for each
+  `DDR_CAP` from 1 to 6 switch DDR on, read the block back with loads a few
+  times, compare, and switch DDR off again; take the middle of the longest
+  run of passing points (the later one when two are equally good, because
+  the die warms and delays grow); if none passes, stay in SDR. A load
+  sweep never exercises a stream continuation, so then run a straight-line
+  block of flash code in DDR with the watchdog armed and a note in
+  BOOT_MODE: a hang ends in a watchdog reboot, which comes back in SDR, and
+  the note tells the next boot not to try again. Once the watchdog is armed
+  it cannot be disabled and the program must service it.
+* **Handing the Pmod over.** A board master that has programmed or used the
+  flash before releasing the Pmod must leave the flash idle (no program,
+  erase or status write running, nothing suspended), not in deep power-down,
+  without a burst wrap (the power-up default) and with Quad Enable set. The
+  chip's start-up sequence undoes quad, dual and DTR continuous-read mode
+  and QPI mode and nothing else; a flash left in any other state gives a boot
+  failure with no diagnosis, or silently wrong fetches for a wrap.
 
 **Reset.** `rst_n` is asynchronous. A low pulse of any length resets the chip,
 with the clock running or stopped, and the chip leaves reset on the second
@@ -92,9 +141,11 @@ or the watchdog looks the same at the pins.
 2. Connect a terminal to the UART: `uo_out[4]` is TX, `ui_in[3]` is RX and
    `uo_out[5]` is RTS# (active low). Use CTS flow control if the terminal has
    it.
-3. Hold `ui_in[0]` at the level the clock frequency needs (see below), pulse
-   `rst_n` low, and release it. Keep `ui_in[0]` there until the clock has run
-   for two edges after `rst_n` rose; after that it is an ordinary input.
+3. Hold `ui_in[0]` at the level the clock frequency needs (see below), and
+   `ui_in[2]` low (streaming on; high for streaming off), pulse `rst_n` low,
+   and release it. Keep both there until the clock has run for two edges
+   after `rst_n` rose; after that they are ordinary inputs, and a reboot
+   does not read them again.
 4. The program runs. Until it sets the divisor, the UART runs at the clock
    frequency divided by 432.
 
@@ -102,7 +153,7 @@ or the watchdog looks the same at the pins.
 low samples two clocks after the SCK edge that launched the data, high samples
 three clocks after. Use high at clock frequencies where two clock periods are
 too short for the data to make the round trip through the pads: high at
-60 MHz, low at 50 MHz and below.
+62.5 MHz and 60 MHz, low at 50 MHz and below.
 
 The tests in `test/` run a program that exercises every pin; `test/README.md`
 says how to run them.

@@ -10,6 +10,7 @@ there (firmware/*.hex) and holds the chip in reset while it does.
 """
 
 import os
+import re
 
 import cocotb
 from cocotb.queue import Queue
@@ -181,6 +182,7 @@ class Board:
                 byte |= int(bit) << n
             await Timer(BIT_NS, unit="ns")
             assert bits(tx) == "1", f"UART TX: framing error after byte {byte:#04x}"
+            self.dut._log.debug(f"UART byte {byte:#04x}")
             self.rx.put_nowait(byte)
 
     async def aim_at_flash_read(self):
@@ -352,3 +354,152 @@ async def test_pins_rd_late(dut):
     """ui_in[0] high through reset. The devices answer more than one SCK
     period late, which only qspi_rd_late = 1 can read."""
     await pins(dut, rd_late=1, delay_ns=25, hold_ns=12)
+
+
+# ---------------------------------------------------------------------------
+# The flash read modes: firmware/tt_flash.S
+
+
+def table_checksum():
+    """The checksum firmware/tt_flash.S computes over its table of words."""
+    with open(os.path.join(FIRMWARE, "tt_flash.S")) as f:
+        words = [
+            int(w, 16)
+            for line in f
+            if line.startswith("    .word")
+            for w in re.findall(r"0x([0-9A-Fa-f]{8})", line)
+        ]
+    assert len(words) == 64
+    ck = 0x12345678
+    for w in words:
+        ck = ((((ck << 5) | (ck >> 27)) & 0xFFFFFFFF) + w) & 0xFFFFFFFF
+    return ck
+
+
+# DDR_CAP for this bench: the Pmod model answers 2 ns after SCK, with no pads
+DDR_CAP = 1
+BLK_N = 512  # instructions in the program's straight-line block
+
+
+async def get_bytes(board, n):
+    return [await board.rx.get() for _ in range(n)]
+
+
+async def get_word(board):
+    return sum(b << (8 * i) for i, b in enumerate(await get_bytes(board, 4)))
+
+
+async def expect_char(board, ch):
+    byte = await board.rx.get()
+    assert byte == ord(ch), f"got {byte:#04x}, want {ch!r}"
+
+
+async def get_phase(board):
+    """One run of the program's block and table: (clocks, count, checksum,
+    (EBh, EDh commands seen by the flash when the checksum's 'C' arrived))."""
+    await expect_char(board, "B")
+    await expect_char(board, "E")
+    clocks = await get_word(board)
+    lo, hi = await get_bytes(board, 2)
+    await expect_char(board, "C")
+    seen = (int(board.dut.pmod.n_eb.value), int(board.dut.pmod.n_edh.value))
+    return clocks, lo | hi << 8, await get_word(board), seen
+
+
+async def flash_modes(dut, no_stream, cap, check_reset=False):
+    """firmware/tt_flash.S with ui_in[2], the no-stream strap, held at
+    no_stream through the pin reset and then set to the other level, and the
+    DDR capture point cap on ui_in[7:5]. Returns
+    the clocks the SDR and the DDR block took."""
+    board = Board(dut)
+    dut.pmod.delay_ns.value = 2
+    dut.pmod.hold_ns.value = 1
+    board.load_flash("tt_flash.hex")
+    dut.ena.value = 1
+    dut.rst_n.value = 1
+    dut.uart_rx.value = 1
+    dut.gpio_in.value = no_stream << 2 | cap << 5
+    board.start()
+
+    # The pin reset, as the demo board's firmware does it: clock stopped.
+    await Timer(20, unit="ns")
+    board.reset(True)
+    await Timer(50, unit="ns")
+    board.reset(False)
+    await Timer(30, unit="ns")
+    board.clock_on = True
+    await ClockCycles(dut.clk, 2)
+    await Timer(1, unit="ns")
+    dut.gpio_in.value = (1 - no_stream) << 2 | cap << 5  # the strap is not read again
+
+    # The UART divisor resets to 34 (114,890 baud at 62.5 MHz); the strap and
+    # QSPI_CFG: STREAM = ~strap, DDR 0, DDR_CAP 2.
+    dll, dlm, straps, cfg = await get_bytes(board, 4)
+    assert (dll, dlm) == (34, 0), f"UART divisor reset {dlm:02x}{dll:02x}, want 0022"
+    assert straps == no_stream << 1, f"STRAPS = {straps:#04x}, want {no_stream << 1:#04x}"
+    stream = 1 - no_stream
+    assert cfg == (2 << 2) | stream, f"QSPI_CFG = {cfg:#04x}, want {(2 << 2) | stream:#04x}"
+
+    want_ck = table_checksum()
+    eb0, edh0 = int(dut.pmod.n_eb.value), int(dut.pmod.n_edh.value)  # the model counts across tests
+
+    # SDR: no EDh command at all
+    sdr_clocks, count, ck, (eb, edh) = await get_phase(board)
+    assert count == BLK_N, f"SDR block ran {count} instructions, want {BLK_N}"
+    assert ck == want_ck, f"SDR checksum {ck:#010x}, want {want_ck:#010x}"
+    assert edh == edh0, f"{edh - edh0} EDh commands before DDR was switched on"
+    assert eb > eb0, "no EBh command seen"
+
+    # DDR on: QSPI_CFG.DDR reads back set, and from here no EBh command
+    await expect_char(board, "d")
+    cfg_ddr = await board.rx.get()
+    want_cfg = (cfg & 0xE3) | cap << 2 | 2
+    assert cfg_ddr == want_cfg, f"QSPI_CFG = {cfg_ddr:#04x} after DDR on, want {want_cfg:#04x}"
+    eb_ddr = int(dut.pmod.n_eb.value)
+    ddr_clocks, count, ck, (eb, edh) = await get_phase(board)
+    assert count == BLK_N, f"DDR block ran {count} instructions, want {BLK_N}"
+    assert ck == want_ck, f"DDR checksum {ck:#010x}, want {want_ck:#010x}"
+    assert edh > edh0, "no EDh command seen with DDR on"
+    assert eb - eb_ddr <= 1, f"{eb - eb_ddr} EBh commands after DDR on"
+    await expect_char(board, "Z")
+    dut._log.info(
+        f"no_stream={no_stream}: block clocks SDR {sdr_clocks} DDR {ddr_clocks}; "
+        f"flash CS falls {board.cs_falls[0]}, EBh {int(dut.pmod.n_eb.value)}, "
+        f"EDh {int(dut.pmod.n_edh.value)}, resumes {int(dut.pmod.n_resume.value)}"
+    )
+
+    if check_reset:
+        # Any reset returns the flash reads to SDR. The program is spinning in
+        # flash with DDR on; the pin reset comes with the clock running.
+        await ClockCycles(dut.clk, 300)
+        await Timer(3, unit="ns")
+        board.reset(True)
+        dut.gpio_in.value = no_stream << 2 | cap << 5
+        await Timer(2, unit="ns")
+        edh_at_reset = int(dut.pmod.n_edh.value)
+        await ClockCycles(dut.clk, 6)
+        await Timer(1, unit="ns")
+        board.reset(False)
+        await ClockCycles(dut.clk, 2)
+        await Timer(1, unit="ns")
+        dut.gpio_in.value = (1 - no_stream) << 2 | cap << 5
+        while not board.rx.empty():
+            board.rx.get_nowait()
+        dll, dlm, straps, cfg = await get_bytes(board, 4)
+        assert cfg == (2 << 2) | stream, f"QSPI_CFG = {cfg:#04x} after the reset, want SDR"
+        assert int(dut.pmod.n_edh.value) == edh_at_reset, "EDh read after the reset"
+    return sdr_clocks, ddr_clocks
+
+
+@cocotb.test(timeout_time=8, timeout_unit="ms")
+async def test_stream_on(dut):
+    """ui_in[2] low through reset: flash reads stream, DDR reads work."""
+    sdr, ddr = await flash_modes(dut, no_stream=0, cap=DDR_CAP, check_reset=True)
+    assert sdr < 24 * BLK_N, f"streaming SDR block took {sdr} clocks"
+
+
+@cocotb.test(timeout_time=8, timeout_unit="ms")
+async def test_stream_off(dut):
+    """ui_in[2] high through reset: no streaming, and slower flash reads."""
+    sdr, ddr = await flash_modes(dut, no_stream=1, cap=DDR_CAP)
+    assert sdr > 32 * BLK_N, f"SDR block without streaming took only {sdr} clocks"

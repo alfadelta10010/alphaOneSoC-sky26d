@@ -5,7 +5,7 @@
 # toolchain. After changing a .S, run `make` here and commit the .hex with it.
 
 TOOLCHAIN ?= riscv64-unknown-elf-
-PROGRAMS  := tt_pins
+PROGRAMS  := tt_pins tt_flash
 
 all: $(PROGRAMS:=.hex)
 

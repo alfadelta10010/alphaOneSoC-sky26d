@@ -5,7 +5,9 @@ This directory holds checks that sit beside the TinyTapeout cocotb tests in
 
 * `tb/formal/` -- property harnesses (`*_props.sv`) for the core (`fyracore`),
   the CSR block, the multiplier/divider, the memory controller with the QSPI
-  controller, the SoC bus, the SPI controller and the system controller. Each
+  controller (streaming on, off and toggling; SDR property list), the QSPI
+  controller's own pin-level rules including the DDR read (`qspi_pins`), the
+  SoC bus, the SPI controller and the system controller. Each
   is proved by k-induction or by pdr from a free power-up state (verdict
   PROVED), checked by bounded model checking from reset (verdict BOUNDED), or
   is a cover (verdict COVERED). `run.sh` is the driver; a sidecar

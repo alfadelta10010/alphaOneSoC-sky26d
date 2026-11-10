@@ -32,6 +32,23 @@ test checks:
 * the UART sends and receives, and RTS# is high while a received byte waits;
 * flash answers on `uio[0]`, PSRAM A on `uio[6]` and PSRAM B on `uio[7]`.
 
+`test_stream_on` and `test_stream_off` run `firmware/tt_flash.S` with the
+no-stream strap (`ui_in[2]`) low and high through the pin reset, and flip it
+afterwards to show that it is read only at the pin reset. The program reports,
+over the UART: the UART divisor's reset value (34); STRAPS and QSPI_CFG; the
+clocks a 512-instruction straight-line block takes to run from flash, and a
+checksum of a table read from flash with loads, first in SDR and then with
+DDR switched on (QSPI_CFG.DDR, with DDR_CAP from `ui_in[7:5]`). The tests
+check:
+
+* QSPI_CFG.STREAM follows the strap, and the block runs faster with streaming
+  on than off;
+* the flash model sees no `EDh` (DDR) command before DDR is switched on and no
+  `EBh` command after, and the DDR checksum equals the SDR one and the one
+  computed here from the table;
+* a reset with the clock running, while DDR is on, returns QSPI_CFG to SDR and
+  the flash sees no `EDh` command after it.
+
 ## How to run
 
 To run the RTL simulation:
