@@ -17,11 +17,13 @@
 
   "//": "CLOCK_PERIOD - Increase this in case you are getting setup time violations.",
   "//": "The value is in nanoseconds, so 20ns == 50MHz.",
-  "CLOCK_PERIOD": 16,
+  "CLOCK_PERIOD": 19.0,
 
   "//": "Hold slack margin - Increase them in case you are getting hold violations.",
   "PL_RESIZER_HOLD_SLACK_MARGIN": 0.1,
-  "GRT_RESIZER_HOLD_SLACK_MARGIN": 0.05,
+  "GRT_RESIZER_HOLD_SLACK_MARGIN": 0.15,
+  "//": "The antenna repair after detailed routing may take up to five passes.",
+  "DRT_ANTENNA_REPAIR_ITERS": 5,
 
   "//": "RUN_LINTER, LINTER_INCLUDE_PDK_MODELS - Disabling the linter is not recommended!",
   "RUN_LINTER": 1,
@@ -33,33 +35,39 @@
 
   "//": "Configuration docs: https://librelane.readthedocs.io/en/latest/reference/configuration.html",
 
-  "//": "AlphaOneSoC: 3x4 tiles, hardened against 16 ns. The routed layout closes timing at every corner at 16.67 ns (60 MHz).",
+  "//": "AlphaOneSoC: 4x4 tiles, hardened against 19 ns (52.6 MHz).",
 
-  "//": "The register file macro, rf_top (see macro/README.md), low on the left edge, rotated, with room to route under its lower pin row.",
-  "//": "The ff corners read a copy of its liberty with the input hold raised to 0.4 ns.",
+  "//": "Three instances of the register file macro, rf_top (see macro/README.md), all rotated: the core's register",
+  "//": "file low on the left edge, and the two halves of the instruction cache's data memory above it.",
+  "//": "The ff corners read a copy of its liberty with the input hold raised to 0.55 ns.",
   "MACROS": {
     "rf_top": {
-      "instances": { "soc.cpu.rf.rf_macro": { "location": [3, 60], "orientation": "E" } },
+      "instances": {
+        "soc.cpu.rf.rf_macro": { "location": [3, 60], "orientation": "E" },
+        "soc.icache.data_mem": { "location": [128.12, 245], "orientation": "E" },
+        "soc.icache.data_hi": { "location": [3, 245], "orientation": "E" }
+      },
       "gds": ["dir::../macro/rf_top.gds.gz"],
       "lef": ["dir::../macro/rf_top.lef"],
       "lib": {
         "*_tt_025C_1v80": ["dir::../macro/rf_top.lib"],
         "*_ss_100C_1v60": ["dir::../macro/rf_top.lib"],
-        "*_ff_n40C_1v95": ["dir::../macro/rf_top.ff-hold-guard.lib"]
+        "*_ff_n40C_1v95": ["dir::../macro/rf_top.ff-hold-guard-055.lib"]
       }
     }
   },
-  "PDN_MACRO_CONNECTIONS": ["soc.cpu.rf.rf_macro VPWR VGND VDPWR VGND"],
+  "PDN_MACRO_CONNECTIONS": ["soc.cpu.rf.rf_macro VPWR VGND VDPWR VGND", "soc.icache.data_mem VPWR VGND VDPWR VGND", "soc.icache.data_hi VPWR VGND VDPWR VGND"],
   "FP_PDN_HORIZONTAL_LAYER": "met3",
 
   "//": "Synthesis and placement.",
-  "SYNTH_STRATEGY": "AREA 3",
+  "SYNTH_STRATEGY": "AREA 2",
+  "SYNTH_AUTONAME": true,
   "MAX_FANOUT_CONSTRAINT": 20,
   "EXTRA_EXCLUDED_CELLS": ["sky130_fd_sc_hd__clkdlybuf4s*", "sky130_fd_sc_hd__dlymetal6s*"],
 
   "//": "The wire estimate before routing, per corner, at what extraction of this design measures",
   "//": "(0.21 to 0.23 fF/um instead of the technology LEF's average 0.0815), so the resizer repairs",
-  "//": "the paths that sign off slow. It makes short paths look slower too: hence the 0.2 ns hold margin.",
+  "//": "the paths that sign off slow. It makes short paths look slower too: hence the hold margins.",
   "LAYERS_RC": {
     "min_*": { "met1": { "res": 8.929e-4, "cap": 1.92e-4 }, "met2": { "res": 8.929e-4, "cap": 1.92e-4 },
                "met3": { "res": 1.567e-4, "cap": 1.92e-4 }, "met4": { "res": 1.567e-4, "cap": 1.92e-4 } },
@@ -71,6 +79,8 @@
   "SIGNAL_WIRE_RC_LAYERS": ["met1", "met2", "met3", "met4"],
   "CLOCK_WIRE_RC_LAYERS": ["met1", "met2", "met3", "met4"],
   "PL_RESIZER_SETUP_SLACK_MARGIN": 0.5,
+  "RUN_POST_GRT_DESIGN_REPAIR": true,
+  "RUN_POST_GRT_RESIZER_TIMING": true,
 
   "//": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
   "//": "!!! DO NOT CHANGE ANYTHING BELOW THIS POINT !!!",

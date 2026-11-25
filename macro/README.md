@@ -1,7 +1,7 @@
 # rf_top: the register file macro
 
 Sylvain Munaut's ("tnt", smunaut) register file for Tiny Tapeout: 32 words of 32 bits, one write port and two read ports, a custom 12-transistor bit cell
-with latches at its ports, 132.64 x 118.70 um. FyraCore keeps its 31 general registers in it. `src/rf_top.v` is its simulation model.
+with latches at its ports, 132.64 x 118.70 um. FyraCore keeps its 31 general registers in it, and the instruction cache (`src/cache.v`) uses two more instances as its data memory (two of 32 words of 32 bits = 256 bytes). `src/rf_top.v` is its simulation model.
 
 ## Provenance
 
@@ -24,7 +24,7 @@ The GDS, LEF and liberty are byte-identical to the copies in the KianV register-
 |---|---|
 | `rf_top.gds.gz` | Apache-2.0 (`LICENSE`) or CERN-OHL-W-2.0 (`LICENSE.CERN-OHL-W-2.0`) |
 | `rf_top.lef`, `rf_top.lib` | CERN-OHL-W-2.0, unmodified |
-| `rf_top.ff-hold-guard.lib`, `../src/rf_top.v` | CERN-OHL-W-2.0, modified here |
+| `rf_top.ff-hold-guard-055.lib`, `../src/rf_top.v` | CERN-OHL-W-2.0, modified here |
 
 `LICENSE` is FemtoRV's copy of Apache-2.0, the terms under which these copies were first obtained; `LICENSE.CERN-OHL-W-2.0` is the licence text from the SPDX license list. The two modified files carry a notice of what was changed and when, as the licence's section 3.3 asks. This repository is their Source
 Location and the complete source of the chip (section 4.1). The rest of the design only interfaces with the macro and keeps this repository's license.
@@ -38,9 +38,8 @@ Location and the complete source of the chip (section 4.1). The rest of the desi
 
 ## The hold guard band
 
-`rf_top.ff-hold-guard.lib` is the one derived file: `rf_top.lib` with the ten input `hold_rising` values raised from 0.2 ns to 0.4 ns, nothing else
+`rf_top.ff-hold-guard-055.lib` is the one derived file: `rf_top.lib` with the ten input `hold_rising` values raised from 0.2 ns to 0.55 ns, nothing else
 changed. `src/config.json` loads it at the ff corners only, and `rf_top.lib` at tt and ss. The macro's real hold measurement was unknown at the time of writing this, and a hold
-failure, unlike a setup one, does not go away with a slower clock. With it, every macro input of the hardened design survives 0.83 ns of real hold at ff
-(slack plus the liberty's hold plus the 0.25 ns clock uncertainty), more than the 0.68 to 0.70 ns of the designs that have fabricated this macro.
+failure, unlike a setup one, does not go away with a slower clock. The band is applied to all three instances of the macro, at their inputs.
 
 The `lib` keys in `src/config.json` are corner wildcards and must not overlap: LibreLane loads every file whose key matches a corner.

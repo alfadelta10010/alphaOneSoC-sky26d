@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: CERN-OHL-W-2.0
    rf_top.ff-hold-guard.lib: Sylvain Munaut's rf_top.lib (CERN-OHL-W-2.0),
    modified 2026-10-15 by the AlphaOneSoC project: every input hold_rising
-   raised from 0.2 ns to 0.4 ns, nothing else changed. A guard band for the
+   raised from 0.2 ns to 0.55 ns (2026-11-21 4x4 experiment: macro-only hold band), nothing else changed. A guard band for the
    fast corners, not a characterisation: see README.md.
    Source location: https://github.com/alfadelta10010/alphaOneSoC-sky26d */
 library (sky130_s47_lib) {
@@ -87,10 +87,10 @@ library (sky130_s47_lib) {
         related_pin : "clk";
         timing_type : "hold_rising";
         rise_constraint (scalar) {
-          values ("0.4");
+          values ("0.55");
         }
         fall_constraint (scalar) {
-          values ("0.4");
+          values ("0.55");
         }
       }
     }
@@ -113,10 +113,10 @@ library (sky130_s47_lib) {
         related_pin : "clk";
         timing_type : "hold_rising";
         rise_constraint (scalar) {
-          values ("0.4");
+          values ("0.55");
         }
         fall_constraint (scalar) {
-          values ("0.4");
+          values ("0.55");
         }
       }
     }
@@ -139,10 +139,10 @@ library (sky130_s47_lib) {
         related_pin : "clk";
         timing_type : "hold_rising";
         rise_constraint (scalar) {
-          values ("0.4");
+          values ("0.55");
         }
         fall_constraint (scalar) {
-          values ("0.4");
+          values ("0.55");
         }
       }
     }
@@ -167,10 +167,10 @@ library (sky130_s47_lib) {
         related_pin : "clk";
         timing_type : "hold_rising";
         rise_constraint (scalar) {
-          values ("0.4");
+          values ("0.55");
         }
         fall_constraint (scalar) {
-          values ("0.4");
+          values ("0.55");
         }
       }
     }
@@ -242,10 +242,10 @@ library (sky130_s47_lib) {
         related_pin : "clk";
         timing_type : "hold_rising";
         rise_constraint (scalar) {
-          values ("0.4");
+          values ("0.55");
         }
         fall_constraint (scalar) {
-          values ("0.4");
+          values ("0.55");
         }
       }
     }
