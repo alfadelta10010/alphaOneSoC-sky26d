@@ -20,11 +20,16 @@ PROJECT_SOURCES = tt_um_alfadelta10010_alphaone_soc.v \
                   pmp.v \
                   regFile.v \
                   rf_top.v \
+                  cache.v \
                   signExt.v \
                   qspi_ctrl.v \
                   mem_ctrl.v \
                   soc_bus.v \
+                  plic.v \
                   uart.v \
+                  gamepad.v \
+                  pwm.v \
+                  pinmux.v \
                   gpio.v \
                   spi.v \
                   syscon.v

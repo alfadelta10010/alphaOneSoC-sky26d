@@ -3,12 +3,12 @@ project:
   title:        "AlphaOneSoC"      # Project title
   author:       "Abhiram Dasika"      # Your name
   discord:      ""      # Your discord username, for communication and automatically assigning you a Tapeout role (optional)
-  description:  "RV32IMAC RISC-V SoC that runs from QSPI flash and PSRAM, with a UART, GPIO, an SPI controller and a watchdog"      # One line description of what your project does
+  description:  "RV32IMAC RISC-V SoC that runs from QSPI flash and PSRAM: 256 B instruction cache, PLIC, 16550A UART, GPIO, SPI, PWM with tones, gamepad receiver, watchdog"      # One line description of what your project does
   language:     "Verilog" # other examples include SystemVerilog, Amaranth, VHDL, etc
-  clock_hz:     62500000       # Clock frequency in Hz (or 0 if not applicable)
+  clock_hz:     52631579       # Clock frequency in Hz (or 0 if not applicable)
 
   # How many tiles your design occupies? A single tile is about 167x108 uM.
-  tiles: "3x4"          # Valid values: 1x1, 1x2, 2x2, 3x2, 4x2, 6x2 or 8x2
+  tiles: "4x4"          # Valid values: 1x1, 1x2, 2x2, 3x2, 4x2, 6x2 or 8x2
 
   # Your top module name must start with "tt_um_". Make it unique by including your github username:
   top_module:  "tt_um_alfadelta10010_alphaone_soc"
@@ -31,11 +31,16 @@ project:
     - "pmp.v"
     - "regFile.v"
     - "rf_top.v"
+    - "cache.v"
     - "signExt.v"
     - "qspi_ctrl.v"
     - "mem_ctrl.v"
     - "soc_bus.v"
+    - "plic.v"
     - "uart.v"
+    - "gamepad.v"
+    - "pwm.v"
+    - "pinmux.v"
     - "gpio.v"
     - "spi.v"
     - "syscon.v"
@@ -48,20 +53,20 @@ pinout:
   ui[1]: "GPIO in 1 / SPI MISO"
   ui[2]: "No-stream strap (during reset): 1 = flash streaming off / GPIO in 2"
   ui[3]: "UART RX"
-  ui[4]: "GPIO in 4"
-  ui[5]: "GPIO in 5"
-  ui[6]: "GPIO in 6"
+  ui[4]: "Gamepad LATCH / GPIO in 4"
+  ui[5]: "Gamepad CLOCK / GPIO in 5"
+  ui[6]: "Gamepad DATA / GPIO in 6"
   ui[7]: "GPIO in 7"
 
-  # Outputs
-  uo[0]: "GPIO out 0"
-  uo[1]: "GPIO out 1 / SPI MOSI"
-  uo[2]: "GPIO out 2"
-  uo[3]: "GPIO out 3 / SPI SCK"
+  # Outputs (uo[5] to uo[7] have one alternate function each, selected by the PINMUX register)
+  uo[0]: "OLED CS# / GPIO out 0"
+  uo[1]: "OLED and SD MOSI / GPIO out 1 / SPI MOSI"
+  uo[2]: "OLED D/C / GPIO out 2"
+  uo[3]: "OLED and SD SCK / GPIO out 3 / SPI SCK"
   uo[4]: "UART TX"
-  uo[5]: "UART RTS#"
-  uo[6]: "GPIO out 6"
-  uo[7]: "GPIO out 7 / SD card CS#"
+  uo[5]: "SD card CS# / GPIO out 5 (alternate: UART RTS#)"
+  uo[6]: "OLED RES# and VCCEN / GPIO out 6 (alternate: PWM0)"
+  uo[7]: "PWM1 (idle low; plays tones)"
 
   # Bidirectional pins
   uio[0]: "QSPI CS0 (flash)"
