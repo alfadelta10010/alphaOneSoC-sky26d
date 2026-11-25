@@ -2,7 +2,7 @@
 project:
   title:        "AlphaOneSoC"      # Project title
   author:       "Abhiram Dasika"      # Your name
-  discord:      ""      # Your discord username, for communication and automatically assigning you a Tapeout role (optional)
+  discord:      "alfadelta10010"      # Your discord username, for communication and automatically assigning you a Tapeout role (optional)
   description:  "RV32IMAC RISC-V SoC that runs from QSPI flash and PSRAM: 256 B instruction cache, PLIC, 16550A UART, GPIO, SPI, PWM with tones, gamepad receiver, watchdog"      # One line description of what your project does
   language:     "Verilog" # other examples include SystemVerilog, Amaranth, VHDL, etc
   clock_hz:     52631579       # Clock frequency in Hz (or 0 if not applicable)

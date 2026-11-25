@@ -9,8 +9,9 @@
    - the Tiny Tapeout QSPI Pmod (qspi_pmod_model.v) on uio. A pin the chip is
      not driving does what it does on the Pmod: the chip selects are pulled
      up, SCK and SD0..SD3 float (X);
-   - the UART, which test.py drives and decodes: uart_rx is ui_in[3],
-     uart_tx is uo_out[4] and uart_rts_n is uo_out[5];
+   - the UART, which test.py drives and decodes: uart_rx is ui_in[3] and
+     uart_tx is uo_out[4]. RTS# is a pinmux feature: it is on uo_out[5] only
+     while a program selects it;
    - gpio_in, the other seven ui_in pins. ui_in[0] is also the qspi_rd_late
      strap while reset is held.
 */
@@ -59,8 +60,7 @@ module tb ();
 
   // The dedicated outputs by name.
   wire uart_tx = uo_out[4];
-  wire uart_rts_n = uo_out[5];
-  wire [5:0] gpio_out = {uo_out[7:6], uo_out[3:0]};  // GPIO OUT 7:6 and 3:0
+  wire [5:0] gpio_out = {uo_out[6:5], uo_out[3:0]};  // GPIO OUT 6:5 and 3:0 by default
 
   // The QSPI Pmod. SD0..SD3 are uio[1], [2], [4], [5], and each pin has its
   // own output enable.

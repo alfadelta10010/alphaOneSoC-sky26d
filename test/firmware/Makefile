@@ -5,11 +5,11 @@
 # toolchain. After changing a .S, run `make` here and commit the .hex with it.
 
 TOOLCHAIN ?= riscv64-unknown-elf-
-PROGRAMS  := tt_pins tt_flash
+PROGRAMS  := tt_pins tt_flash cache gpio_irq pinmux
 
 all: $(PROGRAMS:=.hex)
 
-%.elf: %.S periph.h link.ld
+%.elf: %.S periph.h soc.h link.ld
 	$(TOOLCHAIN)gcc -march=rv32imac_zicsr_zifencei -mabi=ilp32 -nostdlib -nostartfiles \
 		-T link.ld -I. $< -o $@
 

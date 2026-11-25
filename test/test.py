@@ -9,25 +9,32 @@ The chip boots from the QSPI Pmod model's flash. Each test loads its program
 there (firmware/*.hex) and holds the chip in reset while it does.
 """
 
+import math
 import os
 import re
 
 import cocotb
+from cocotb.utils import get_sim_time
 from cocotb.queue import Queue
 from cocotb.triggers import ClockCycles, FallingEdge, RisingEdge, Timer
 
-CLK_NS = 10
+# The bench clock: 10 ns unless CLK_PS=<ps> is set (the chip runs at 52.6 MHz: CLK_PS=19000).
+# Every timing constant below follows it.
+CLK_PS = int(os.environ.get("CLK_PS", "10000"))
+CLK_NS = 2 * (CLK_PS // 2) / 1000   # the real period: two half periods of CLK_PS // 2 ps
+SCALE = CLK_PS / 10000            # timeouts and the 10 ns delays scale with the clock
 # firmware/tt_pins.S sets the UART divisor to 1: 16 clocks a bit
-BIT_NS = 16 * CLK_NS
+BIT_PS = 16 * CLK_PS
 
 FIRMWARE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "firmware")
 
 # out_vals in firmware/tt_pins.S, and the ui_in patterns it is shown
-OUT_VALS = [0x01, 0x02, 0x04, 0x08, 0x40, 0x80, 0xFF, 0x00, 0x09]
+OUT_VALS = [0x01, 0x02, 0x04, 0x08, 0x40, 0x80, 0xFF, 0x00, 0x09, 0x20]
 IN_PATS = [0x01, 0x02, 0x04, 0x10, 0x20, 0x40, 0x80, 0x00, 0xF7]
 
-# uo_out while the chip is in reset: TX and RTS# high, GPIO OUT 0x89
-UO_RESET = "10111001"
+# uo_out while the chip is in reset (and after a power-off): OLED CS#, SCK, UART TX
+# and SD CS# high, the rest low
+UO_RESET = "00111001"
 
 
 def bits(signal):
@@ -91,7 +98,7 @@ class Board:
         level = 0
         self.dut.clk.value = 0
         while True:
-            await Timer(CLK_NS // 2, unit="ns")
+            await Timer(CLK_PS // 2, unit="ps")
             if self.clock_on:
                 level = 1 - level
                 self.dut.clk.value = level
@@ -172,15 +179,15 @@ class Board:
         tx = self.dut.uart_tx
         while True:
             await FallingEdge(tx)
-            await Timer(BIT_NS // 2, unit="ns")
+            await Timer(BIT_PS // 2, unit="ps")
             assert bits(tx) == "0", "UART TX: start bit not low at its middle"
             byte = 0
             for n in range(8):
-                await Timer(BIT_NS, unit="ns")
+                await Timer(BIT_PS, unit="ps")
                 bit = bits(tx)
                 assert bit in "01", "UART TX: X in a data bit"
                 byte |= int(bit) << n
-            await Timer(BIT_NS, unit="ns")
+            await Timer(BIT_PS, unit="ps")
             assert bits(tx) == "1", f"UART TX: framing error after byte {byte:#04x}"
             self.dut._log.debug(f"UART byte {byte:#04x}")
             self.rx.put_nowait(byte)
@@ -198,20 +205,14 @@ class Board:
         )
 
     async def uart_send(self, byte):
-        """Send a byte to uart_rx as the demo board's RP2350 does, waiting
-        for CTS (the chip's RTS#) first."""
+        """Send a byte to uart_rx. The chip's RTS# is not on a pin unless
+        the program selects it (test_pinmux does), so there is no flow
+        control here: the program reads each byte before the next is sent."""
         dut = self.dut
-        while bits(dut.uart_rts_n) != "0":
-            await RisingEdge(dut.clk)
         await Timer(3, unit="ns")
         for bit in [0] + [(byte >> n) & 1 for n in range(8)] + [1]:
             dut.uart_rx.value = bit
-            await Timer(BIT_NS, unit="ns")
-        # The program cannot have read the byte in the half bit since its
-        # stop bit was sampled, so the chip must not be asking for another.
-        assert bits(dut.uart_rts_n) == "1", (
-            "RTS# low at the end of a received byte, before the program read it"
-        )
+            await Timer(BIT_PS, unit="ps")
 
     def ram_word(self, addr):
         """A little-endian word of the Pmod's PSRAM (A at 0, B at 8 MB)."""
@@ -281,10 +282,12 @@ async def pins(dut, rd_late, delay_ns, hold_ns):
     for value in OUT_VALS:
         byte = await board.rx.get()
         assert byte == ord("o"), f"got {byte:#04x}, want 'o'"
-        want = f"{value >> 6:02b}{value & 0xF:04b}"
+        want = f"{(value >> 5) & 3:02b}{value & 0xF:04b}"
         assert bits(dut.gpio_out) == want, (
-            f"OUT = {value:#04x}: uo_out[7:6], [3:0] = {bits(dut.gpio_out)}, want {want}"
+            f"OUT = {value:#04x}: uo_out[6:5], [3:0] = {bits(dut.gpio_out)}, want {want}"
         )
+        # OUT bit 7 has no pin by default: uo_out[7] is PWM1, idle low
+        assert bits(dut.uo_out)[0] == "0", f"OUT = {value:#04x}: uo_out[7] high"
 
     # 2. GPIO IN and UART RX: after each 'i', a pattern on ui_in and a byte;
     #    the program sends back the byte, then IN
@@ -326,34 +329,34 @@ async def pins(dut, rd_late, delay_ns, hold_ns):
     # 4. Done, and nothing after it
     byte = await board.rx.get()
     assert byte == ord("Z"), f"got {byte:#04x}, want 'Z'"
-    await Timer(12 * BIT_NS, unit="ns")
+    await Timer(12 * BIT_PS, unit="ps")
     assert board.rx.empty(), "a byte after the end of the stream"
     assert board.cs_falls[0] > 0 and board.sck_rises > 0, (
         "no flash read on uio[0] and uio[3]"
     )
 
 
-@cocotb.test(timeout_time=2, timeout_unit="ms")
+@cocotb.test(timeout_time=math.ceil(2 * SCALE), timeout_unit="ms")
 async def test_pins(dut):
     """Every pin; the QSPI devices answer 2 ns after SCK falls."""
     await pins(dut, rd_late=0, delay_ns=2, hold_ns=1)
 
 
-@cocotb.test(timeout_time=2, timeout_unit="ms")
+@cocotb.test(timeout_time=math.ceil(2 * SCALE), timeout_unit="ms")
 async def test_pins_slow_devices(dut):
     """The devices answer just under one SCK period late: the most that
     qspi_rd_late = 0 has to take. 18 ns, not 19: at 19 the data lands 1 ns
     before the sampling edge, and at gate level, where every flop has a 1 ns
     clock-to-output and SCK reaches its pin 1 ns later, it lands in the very
     time step of that edge -- a race inside the simulator, not in the chip."""
-    await pins(dut, rd_late=0, delay_ns=18, hold_ns=1)
+    await pins(dut, rd_late=0, delay_ns=int(2 * CLK_NS) - 2, hold_ns=1)
 
 
-@cocotb.test(timeout_time=2, timeout_unit="ms")
+@cocotb.test(timeout_time=math.ceil(2 * SCALE), timeout_unit="ms")
 async def test_pins_rd_late(dut):
     """ui_in[0] high through reset. The devices answer more than one SCK
     period late, which only qspi_rd_late = 1 can read."""
-    await pins(dut, rd_late=1, delay_ns=25, hold_ns=12)
+    await pins(dut, rd_late=1, delay_ns=int(2.5 * CLK_NS), hold_ns=int(1.2 * CLK_NS))
 
 
 # ---------------------------------------------------------------------------
@@ -491,15 +494,230 @@ async def flash_modes(dut, no_stream, cap, check_reset=False):
     return sdr_clocks, ddr_clocks
 
 
-@cocotb.test(timeout_time=8, timeout_unit="ms")
+@cocotb.test(timeout_time=math.ceil(8 * SCALE), timeout_unit="ms")
 async def test_stream_on(dut):
     """ui_in[2] low through reset: flash reads stream, DDR reads work."""
     sdr, ddr = await flash_modes(dut, no_stream=0, cap=DDR_CAP, check_reset=True)
     assert sdr < 24 * BLK_N, f"streaming SDR block took {sdr} clocks"
 
 
-@cocotb.test(timeout_time=8, timeout_unit="ms")
+@cocotb.test(timeout_time=math.ceil(8 * SCALE), timeout_unit="ms")
 async def test_stream_off(dut):
     """ui_in[2] high through reset: no streaming, and slower flash reads."""
     sdr, ddr = await flash_modes(dut, no_stream=1, cap=DDR_CAP)
     assert sdr > 32 * BLK_N, f"SDR block without streaming took only {sdr} clocks"
+
+
+# ---------------------------------------------------------------------------
+# Programs that report in frames: firmware/soc.h, cache.S, gpio_irq.S, pinmux.S
+#
+# A frame is a tag byte and, but for a cue, a little-endian word:
+# 0x10 cue, 0x11 value, 0x12 the value a failed check saw, 0x13 the end
+# (0x5555 pass, (code << 16) | 0x3333 fail). On a cue the test acts at the pins.
+
+
+async def boot(dut, hex_name, gpio=0):
+    """Start a frame-reporting program: pin reset as the demo board does it
+    (clock stopped), both straps low (streaming on, rd_late 0), gpio_in held
+    at gpio and the Pmod answering 2 ns after SCK."""
+    board = Board(dut)
+    dut.pmod.delay_ns.value = 2
+    dut.pmod.hold_ns.value = 1
+    board.load_flash(hex_name)
+    dut.ena.value = 1
+    dut.rst_n.value = 1
+    dut.uart_rx.value = 1
+    dut.gpio_in.value = gpio
+    board.start()
+    await Timer(20, unit="ns")
+    board.reset(True)
+    await Timer(50, unit="ns")
+    board.reset(False)
+    await Timer(30, unit="ns")
+    board.clock_on = True
+    await ClockCycles(dut.clk, 2)
+    return board
+
+
+async def next_frame(board):
+    """The next frame: ("cue", code), ("value", word), ("seen", word) or
+    ("end", word)."""
+    tag = await board.rx.get()
+    assert 0x10 <= tag <= 0x13, f"stray UART byte {tag:#04x}"
+    if tag == 0x10:
+        return "cue", await board.rx.get()
+    return {0x11: "value", 0x12: "seen", 0x13: "end"}[tag], await get_word(board)
+
+
+async def run_frames(board, on_cue):
+    """Take frames until the end, calling `await on_cue(code)` on each cue.
+    Returns the values, in order; fails on a failed check in the program."""
+    values = []
+    seen = None
+    while True:
+        kind, word = await next_frame(board)
+        if kind == "cue":
+            await on_cue(word)
+        elif kind == "value":
+            values.append(word)
+        elif kind == "seen":
+            seen = word
+        else:
+            assert word == 0x5555, (
+                f"the program failed check {word >> 16:#04x} (it saw {seen:#x})"
+                if word & 0xFFFF == 0x3333
+                else f"the program ended with {word:#x}"
+            )
+            return values
+
+
+async def expect_poweroff(board):
+    """The program's last act is the power-off: within 20,000 clocks every
+    bidirectional pin is released and uo_out is at its reset value, and
+    it stays so."""
+    dut = board.dut
+    for _ in range(20000):
+        await RisingEdge(dut.clk)
+        if bits(dut.uio_oe) == "00000000":
+            break
+    board.check_reset_pins("after the power-off")
+    for _ in range(200):
+        await RisingEdge(dut.clk)
+        board.check_reset_pins("200 clocks after the power-off")
+
+
+def uo(dut, n):
+    """uo_out[n] as '0', '1' or something else."""
+    return bits(dut.uo_out)[7 - n]
+
+
+@cocotb.test(timeout_time=math.ceil(10 * SCALE), timeout_unit="ms")
+async def test_cache(dut):
+    """The instruction cache through CACHE_CTL: the register, hits (a loop
+    runs in less than half the time), self-modifying code with FENCE.I, the
+    cache switched off again, and PBURST, which must cut the PSRAM A chip
+    select falls of a cold run of code to about a quarter."""
+    board = await boot(dut, "cache.hex")
+    falls = {}
+
+    async def on_cue(code):
+        falls[code] = board.cs_falls[1]
+
+    values = await run_frames(board, on_cue)
+    off, on, no_burst, burst = values
+    assert on * 2 < off, f"loop: {off} clocks with the cache off, {on} with it on"
+    assert burst < no_burst, f"cold PSRAM code: {no_burst} clocks, {burst} with PBURST"
+    f_off, f_on = falls[2] - falls[1], falls[3] - falls[2]
+    assert f_off >= 64, f"{f_off} PSRAM A chip select falls running 65 words without PBURST"
+    assert f_on * 2 < f_off, f"PBURST: {f_on} falls against {f_off} without"
+    dut._log.info(
+        f"loop {off} -> {on} clocks; cold PSRAM code {no_burst} -> {burst} clocks, "
+        f"CS falls {f_off} -> {f_on}"
+    )
+    await expect_poweroff(board)
+
+
+@cocotb.test(timeout_time=math.ceil(10 * SCALE), timeout_unit="ms")
+async def test_gpio_irq(dut):
+    """The GPIO input-change interrupt: one edge on one ui_in pin per cue,
+    seen in IN_IP, through the PLIC when IN_IE has the bit, and not otherwise;
+    a falling edge pends and fires when its enable is set; wfi wakes on it."""
+    board = await boot(dut, "gpio_irq.hex")
+    level = [0]
+
+    async def on_cue(code):
+        if code == 1:
+            level[0] |= 0x80
+        elif code == 2:
+            level[0] |= 0x04
+        elif code == 3:
+            level[0] |= 0x01
+        elif code == 4:
+            level[0] |= 0x10
+        elif code == 5:
+            level[0] &= ~0x04
+        else:
+            assert False, f"cue {code}"
+        dut.gpio_in.value = level[0]
+
+    values = await run_frames(board, on_cue)
+    assert values == []
+    assert level[0] == 0x91
+    await expect_poweroff(board)
+
+
+async def measure_pin(dut, pin, edges):
+    """Times (ns) of `edges` successive rising edges of uo_out[pin], and the
+    fall between the first two."""
+    sig = dut.uo_out
+    times = []
+    fall = None
+    while len(times) < edges:
+        while uo(dut, pin) != "0":
+            await FallingEdge(dut.clk)
+        while uo(dut, pin) != "1":
+            await FallingEdge(dut.clk)
+        times.append(get_sim_time("ns"))
+        if len(times) == 1:
+            while uo(dut, pin) != "0":
+                await FallingEdge(dut.clk)
+            fall = get_sim_time("ns")
+    return times, fall
+
+
+@cocotb.test(timeout_time=math.ceil(40 * SCALE), timeout_unit="ms")
+async def test_pinmux(dut):
+    """The pinmux, with UART RTS#, PWM and the tone on uo_out pins: RTS#
+    on uo_out[5] stops a paste of 64 characters at 7 to 10 and loses none;
+    the default of uo_out[5] is SD CS# (GPIO OUT bit 5); codes that are not
+    legal for a pin store 0 and leave the default map; PWM0 on uo_out[6] and
+    PWM1 on uo_out[7] at 25 % duty; the PWM1 tone on uo_out[7] (period
+    measured)."""
+    board = await boot(dut, "pinmux.hex")
+    paste = {"sent": 0, "against_cts": 0, "done": False}
+
+    async def paste_task():
+        """The sender's side of the UART with CTS flow control: a character
+        starts only while uo_out[5] (RTS#) is low."""
+        for n in range(64):
+            while uo(dut, 5) != "0":
+                await RisingEdge(dut.clk)
+            await board.uart_send(0x20 + (7 * n + 3) % 95)
+            paste["sent"] += 1
+        paste["done"] = True
+
+    async def on_cue(code):
+        if code == 1:
+            cocotb.start_soon(paste_task())
+        elif code == 8:
+            assert uo(dut, 5) == "1", "RTS# (uo_out[5]) low with the receive FIFO nearly full"
+            assert 7 <= paste["sent"] <= 10, (
+                f"{paste['sent']} characters sent before RTS# went high, want 7 to 10"
+            )
+            assert not paste["done"], "the paste finished without the program reading"
+        elif code == 2:
+            assert uo(dut, 5) == "0", "uo_out[5] high after OUT bit 5 went low"
+        elif code == 3:
+            assert (uo(dut, 5), uo(dut, 6), uo(dut, 7)) == ("1", "0", "0"), (
+                f"illegal pinmux codes changed the default map: uo_out[7:5] = "
+                f"{uo(dut, 7)}{uo(dut, 6)}{uo(dut, 5)}, want 001"
+            )
+        elif code in (5, 10):
+            assert uo(dut, 7) == "0", f"cue {code}: uo_out[7] is {uo(dut, 7)}, want low"
+        elif code == 7:
+            assert uo(dut, 6) == "0", f"cue 7: uo_out[6] is {uo(dut, 6)}, want low"
+        elif code in (4, 6):
+            pin, name = (7, "PWM1") if code == 4 else (6, "PWM0")
+            (r1, r2), fall = await measure_pin(dut, pin, 2)
+            period, high = r2 - r1, fall - r1
+            assert abs(period - 65536 * CLK_NS) <= 4 * CLK_NS, f"{name} period {period} ns, want {65536 * CLK_NS}"
+            assert abs(high - 16384 * CLK_NS) <= 4 * CLK_NS, f"{name} high {high} ns, want {16384 * CLK_NS} (25 %)"
+        elif code == 9:
+            (r1, r2, r3), _ = await measure_pin(dut, 7, 3)
+            assert abs((r3 - r2) - 142045 * CLK_NS) <= 2 * CLK_NS, f"PWM1 tone period {r3 - r2} ns, want {142045 * CLK_NS}"
+        else:
+            assert False, f"cue {code}"
+
+    await run_frames(board, on_cue)
+    assert paste["done"] and paste["sent"] == 64
+    await expect_poweroff(board)

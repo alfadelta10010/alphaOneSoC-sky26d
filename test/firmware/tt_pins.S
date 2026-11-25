@@ -2,7 +2,8 @@
 # program reports through the UART and nothing else.
 #
 #  1. GPIO OUT. Each of out_vals goes to OUT, then an 'o' leaves on TX. The
-#     testbench reads uo_out[7:6] and uo_out[3:0] as each 'o' arrives.
+#     testbench reads uo_out[6:5] and uo_out[3:0] as each 'o' arrives: OUT bits 6:5 and 3:0 (bit 4 is the
+#     UART's TX, and bit 7 has no pin by default: uo_out[7] is the audio output and must stay low).
 #  2. GPIO IN and UART RX. After each 'i' the testbench puts a pattern on
 #     ui_in and sends a byte. The program waits for it, reads IN, and sends
 #     back the byte and then IN.
@@ -14,7 +15,7 @@
 # N_OUT and N_IN are the testbench's counts too. The divisor is set to 1,
 # 16 clocks a bit, which is the rate the testbench's UART runs at.
 #include "periph.h"
-#define N_OUT 9
+#define N_OUT 10
 #define N_IN  9
 
 /* Send r and wait until its stop bit has gone (clobbers t4, t5). */
@@ -91,4 +92,4 @@ fail:
 
     .section .rodata
 out_vals:
-    .byte 0x01, 0x02, 0x04, 0x08, 0x40, 0x80, 0xFF, 0x00, 0x09
+    .byte 0x01, 0x02, 0x04, 0x08, 0x40, 0x80, 0xFF, 0x00, 0x09, 0x20

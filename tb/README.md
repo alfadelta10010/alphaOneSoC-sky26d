@@ -3,6 +3,14 @@
 This directory holds checks that sit beside the TinyTapeout cocotb tests in
 `test/`. Neither set runs in TinyTapeout's CI; run them by hand.
 
+**Status.** These harnesses were written before the instruction cache, the
+PLIC, the pinmux, the PWM and gamepad blocks and the 16550A UART were added to
+the SoC, and they have not been rerun on this RTL (the 256-byte sectored
+instruction cache, the pinmux with three alternate functions, the PWM without
+interrupts, and the CSR trims in particular): the bus and memory-controller
+harnesses name ports that have changed and need updating first. The cocotb
+tests in `test/` cover the new blocks at the pins.
+
 * `tb/formal/` -- property harnesses (`*_props.sv`) for the core (`fyracore`),
   the CSR block, the multiplier/divider, the memory controller with the QSPI
   controller (streaming on, off and toggling; SDR property list), the QSPI

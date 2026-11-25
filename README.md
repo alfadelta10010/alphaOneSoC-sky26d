@@ -3,8 +3,10 @@
 # AlphaOneSoC
 
 A 32-bit RISC-V system on a chip for Tiny Tapeout: an RV32IMAC core that runs
-from the Tiny Tapeout QSPI Pmod's flash and PSRAM, with a UART, GPIO, an SPI
-controller and a watchdog.
+from the Tiny Tapeout QSPI Pmod's flash and PSRAM, with a 256-byte instruction
+cache, a PLIC, a 16550A UART, GPIO with input interrupts, an SPI controller,
+a PWM timer (PWM1 plays tones on `uo_out[7]`), a gamepad receiver and a
+watchdog. It is hardened for a 52.6 MHz clock.
 
 - [Read the documentation for project](docs/info.md)
 - [How the tests work, and how to run them](test/README.md)

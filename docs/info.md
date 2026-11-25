@@ -11,17 +11,17 @@ You can also include images in this folder and reference them in the markdown. E
 
 AlphaOneSoC is a 32-bit RISC-V system on a chip. It keeps its program and its
 memory on the Tiny Tapeout QSPI Pmod, and talks to the outside through a UART,
-an SPI controller and a few GPIO pins.
+an SPI controller, GPIO pins, a PWM timer that also plays tones, and a
+gamepad receiver.
 
 **The processor** is FyraCore, an RV32IMAC core with the Zicsr, Zicntr and
 Zifencei extensions. It has machine and user modes, four PMP regions, and the
-standard timer and software interrupts from a CLINT. Its 31 general registers
-live in a hard macro, Sylvain Munaut's rf_top register file (CERN-OHL-W-2.0;
-`macro/README.md`).
+standard timer, software and external interrupts (a CLINT and a PLIC). Its 31
+general registers live in a hard macro, Sylvain Munaut's rf_top register file
+(CERN-OHL-W-2.0; `macro/README.md`); the instruction cache's data memory is two
+more instances of the same macro.
 
-**The clock** is 62.5 MHz (16 ns): the design meets timing at that frequency
-at every corner, the slow one (100 C, 1.60 V) included. The board may also
-run it at 60 MHz.
+**The clock** is 52.6 MHz (19 ns).
 
 **Memory** is the QSPI Pmod: a 16 MB flash and two 8 MB PSRAMs on one quad
 bus. There is no boot ROM. Out of reset the core fetches its first instruction
@@ -29,39 +29,59 @@ from the first byte of flash and runs in place from there. SCK runs at half
 the clock frequency. Flash reads stream by default, and double-data-rate
 (DDR) flash reads can be switched on by software; see **Flash reads** below.
 
-| Address       | Size  | What                                              |
-|---------------|-------|---------------------------------------------------|
-| `0x0200_0000` | 64 KB | CLINT: `msip`, `mtimecmp`, `mtime`                |
-| `0x1000_0000` | 64 KB | UART, a 16550 subset with byte-wide registers     |
-| `0x1001_0000` | 64 KB | GPIO: `OUT`, `IN`, `SPICTL`; SPI controller       |
-| `0x1002_0000` | 64 KB | system controller and watchdog                    |
-| `0x2000_0000` | 16 MB | flash: read and execute                           |
-| `0x8000_0000` | 16 MB | PSRAM: read, write and execute                    |
+| Address       | Size  | What                                                          |
+|---------------|-------|---------------------------------------------------------------|
+| `0x0200_0000` | 64 KB | CLINT: `msip`, `mtimecmp`, `mtime`                            |
+| `0x0C00_0000` | 4 MB  | PLIC: 9 sources, one context (machine mode)                   |
+| `0x1000_0000` | 64 KB | UART: a 16550A with byte-wide registers                       |
+| `0x1001_0000` | 64 KB | GPIO: `OUT`, `IN`, `SPICTL`, gamepad, input-change interrupt; SPI controller |
+| `0x1002_0000` | 64 KB | system controller, watchdog, `PINMUX`, `CACHE_CTL`            |
+| `0x1003_0000` | 64 KB | PWM timer (its registers repeat every 64 bytes through the window) |
+| `0x2000_0000` | 16 MB | flash: read and execute                                       |
+| `0x8000_0000` | 16 MB | PSRAM: read, write and execute                                |
 
-An access outside these windows raises an access fault.
+An access outside these windows raises an access fault. Read the PLIC with
+word loads only (a byte load of the claim register claims an interrupt).
 
-**The UART** is fixed at 8N1, and its baud rate is the clock divided by 16
-times the divisor. The divisor resets to 34, which is 114,890 baud (-0.27 %
-from 115200) at 62.5 MHz; at 60 MHz set it to 33 (113,636 baud, -1.4 %). It
-has no FIFOs. A write to the transmit register waits until the previous character
-has left, and RTS# tells the sender when the receiver has room for a
-character.
+**The UART** is a 16550A with an 8-entry receive FIFO (trigger levels 1, 2, 4
+and 7 bytes), one transmit holding register, the usual interrupts and loopback,
+and fixed 8N1 framing. Its baud rate is the clock divided by 16 times the
+divisor. The divisor resets to 34, which is 96,749 baud at 52.6 MHz (it was
+sized for 62.5 MHz): a program writes 29 (113,421 baud, -1.54 % from 115200)
+before it prints. A write to the transmit register waits until the holding
+register is free. Its interrupt is PLIC source 1. RTS# is not on a pin by
+default (`uo_out[5]` is the SD card's CS#): select it for `uo_out[5]` in
+`PINMUX` for hardware flow control. RTS# is high while the receive FIFO holds
+seven or more characters (fewer than two free entries) or MCR.RTS is clear, so
+a sender that honours it cannot overrun the FIFO.
 
-**The GPIO block** drives six of the output pins and reads all eight input
-pins, through a two-flop synchroniser. OUT bit 7 is the SD card's CS#.
+**The GPIO block** at `0x1001_0000` has these registers, repeated every 64
+bytes through the window:
 
 | Offset | Register                                                          |
 |--------|-------------------------------------------------------------------|
-| `0x00` | OUT: bit *i* drives `uo_out[i]`; bits 4 and 5 read 0. Resets `0x89` |
-| `0x04` | IN: `ui_in[7:0]`                                                  |
+| `0x00` | OUT: bit *i* drives `uo_out[i]` when `PINMUX` selects GPIO for that pin. Resets `0xB9` |
+| `0x04` | IN: `ui_in[7:0]` through a two-flop synchroniser                  |
 | `0x0C` | SPICTL: bit 0 EN (resets 0), bit 8 BUSY                           |
+| `0x10` | GAMEPAD (read only): the last frame, see below                    |
+| `0x14` | GPSTAT: bit 0 CHG (write 1 to clear), bit 1 IE                    |
+| `0x18` | IN_IE: per-pin enable of the input-change interrupt (resets 0)    |
+| `0x1C` | IN_IP: pending edges, one bit per `ui_in` pin; write 1 to clear   |
 | `0x20` | SPI RXDATA                                                        |
 | `0x24` | SPI TXDATA                                                        |
 | `0x28` | SPI STATUS: bit 0 TXE, bit 1 TXR                                  |
 | `0x2C` | SPI CONTROL: bit 0 CPHA, bit 1 CPOL; resets to mode 3             |
 | `0x30` | SPI BAUD: SCK = clock / (2 x (BAUD + 1)); resets `0xFF`           |
 
-The registers repeat every 64 bytes through the window.
+**GPIO input interrupts.** Bit *i* of IN_IP sets on either edge of
+`ui_in[i]` (after the synchroniser), whatever IN_IE says. The interrupt
+(PLIC source 4) is high while any bit is set in both IN_IP and IN_IE, so an
+edge that came while its enable was clear fires when the enable is set. To
+use it: clear IN_IP, set the IN_IE bits, enable source 4 in the PLIC and
+`mie.MEIE` in the core. A handler claims source 4 from the PLIC, clears the
+IN_IP bits it served, and completes the claim. `wfi` wakes on an edge. Leave
+IE[3] clear if a UART is on `ui_in[3]` (a start bit is an edge), and IE[6:4]
+clear with a gamepad fitted (they toggle every frame).
 
 **The SPI controller** is a master for an SD card and a display on one bus.
 Its registers behave like OpenCores tiny_spi, so Linux's `spi-oc-tiny` driver
@@ -71,6 +91,61 @@ come from flops. A byte takes 16 x (BAUD + 1) clocks, all four SPI modes
 are supported, and a write to TXDATA while a byte is still waiting stalls
 the processor until there is room. Set EN only with every CS# high.
 
+**The gamepad receiver** reads the Tiny Tapeout gamepad Pmod (one SNES pad):
+LATCH on `ui_in[4]`, CLOCK on `ui_in[5]`, DATA on `ui_in[6]`. It keeps the
+last 12 bits shifted in before LATCH (B Y SELECT START UP DOWN LEFT RIGHT A X
+L R, 1 = pressed) in GAMEPAD, and an absent pad reads as no frame. GPSTAT.CHG
+sets when a frame changes the value, and GPSTAT.IE enables its interrupt
+(PLIC source 3).
+
+**The pinmux.** Every `uo_out` pin has a default function (the pinout in
+`info.yaml`). Two pins have one alternate function, selected by a 3-bit code in
+the `PINMUX` word at `0x1002_0020`, pin *i* in bits `[4i+2:4i]`: `uo_out[5]`
+code 2 is UART RTS# (code 0 is the SD card's CS#, GPIO OUT bit 5), and
+`uo_out[6]` code 4 is PWM0 (code 0 is the display's RES# and VCCEN, GPIO OUT
+bit 6; the pin drives both of the display's RES# and VCCEN inputs, so
+PWM0 there toggles the display's reset and boost supply enable). `uo_out[7]`
+is always PWM1 and has no code. A code that is not legal for its pin stores 0
+and reads back 0, and the pin keeps its default. The other pins are not
+switchable: they carry the display and SD card SPI lines, the UART's TX, and
+the GPIO OUT bits. All codes reset to 0. Every `uo_out` pin comes from one flop
+after the mux.
+
+**The timer/PWM** at `0x1003_0000` has the register layout of SiFive's pwm0
+(Linux's `pwm-sifive` drives it): a scaled 16-bit counter and two built
+comparators, whose outputs are PWM0 and PWM1 for the pinmux. PWM2 and PWM3 are
+not built (`pwmcmp2/3` read `0xFFFF`). There are no PWM interrupts and no
+sticky or one-shot modes (those `pwmcfg` bits read 0). The pin is high while
+the scaled counter is at or above the comparator, and the counter runs only
+while `enalways` is set.
+
+**Tones** come from PWM1 on `uo_out[7]`. Set `scale` = S, `zerocmp` = 1 and
+`enalways` = 1, `pwmcmp0` = N and `pwmcmp1` = N / 2: the period is
+N x 2^S + 1 clocks, so the frequency is 52,631,579 / (N x 2^S + 1) Hz at
+52.6 MHz (choose the smallest S with N at most 65,535). Write `pwmcount`
+before enabling a tone so that the first edge is exact. To stop a tone, write
+`0xFFFF` to `pwmcmp1` and `pwmcmp0`, then `pwmcfg` = 0, then `pwmcount` = 0:
+`pwmcfg` = 0 alone only freezes the counter and the pin can stay high. PWM0
+shares the counter and `pwmcmp0`, so while a tone plays it pulses once a
+period.
+
+**The instruction cache** is 256 bytes, direct mapped, eight lines of 32 bytes
+in two 16-byte sectors (a miss fills one sector), on the fetch path only. Its
+data is held in two register-file macros. It is off at reset, and switched by
+`CACHE_CTL`, a word at
+`0x1002_0024`:
+
+| Bit | Meaning |
+|-----|---------|
+| 0 EN | 1 = fetches go through the cache (switching on starts it empty). Resets to 0, at every reset |
+| 1    | reads 1: a cache is built |
+| 2 PBURST | 1 = a line fill from PSRAM is one chip-select period, not four. Experimental, off at reset; needs EN and QSPI_CFG.STREAM, and a clock of at least 15 MHz (the PSRAM's tCEM; a burst is at most 101 clocks, 1.92 us at 52.6 MHz) |
+
+A hit takes two clocks. A store, an AMO or a store-conditional that
+completes invalidates the sector it hit; software must still execute `fence.i`
+after writing code, which also flushes the cache. A loop that fits in the
+cache runs from hits, in less than half the time it takes from flash.
+
 **The system controller** at `0x1002_0000` reboots the chip (store `0x7777`
 to `+0x00`) or powers it off until the next `rst_n` (`0x5555`). It keeps a
 reset cause (`+0x04`: pin, software, watchdog; write 1 to clear), a boot-mode
@@ -79,7 +154,10 @@ the two straps as sampled at the last pin reset (`+0x10`, STRAPS: bit 0 is
 `ui_in[0]`, bit 1 is `ui_in[2]`, the no-stream strap) and the flash-read
 configuration (`+0x1C`, QSPI_CFG, below). A watchdog in the Synopsys
 DesignWare layout sits at `+0x100`, so Linux's `dw_wdt` driver runs it; when
-it expires it reboots the chip.
+it expires it reboots the chip (PLIC source 9 pulses at the first expiry).
+
+**PLIC sources:** 1 UART, 2 SPI, 3 gamepad change, 4 GPIO input change, 5 to
+8 not built (they never pend), 9 watchdog.
 
 **Flash reads.** The flash is read with the quad I/O read (`EBh`, command on
 IO0, address and data on all four lines). Two things change how, both set in
@@ -130,33 +208,41 @@ QSPI_CFG at `0x1002_001C` (word, byte lane 0):
 with the clock running or stopped, and the chip leaves reset on the second
 clock edge after `rst_n` rises. While it is in reset all eight bidirectional
 pins are inputs, so the flash can be programmed from outside with the chip
-held in reset, and the outputs hold their idle values: UART TX and RTS# high,
-GPIO OUT `0x89` (`uo_out` = `0xB9`). A reboot from the system controller
-or the watchdog looks the same at the pins.
+held in reset, and the outputs hold their idle values: `uo_out` = `0x39`
+(OLED CS#, SCK, UART TX and SD CS# high, the rest low), and GPIO OUT `0xB9`.
+A reboot from the system controller or the watchdog looks the same at the
+pins.
 
 ## How to test
 
 1. Fit the QSPI Pmod on the bidirectional header and write a program to the
    start of its flash. The program must be linked to run at `0x2000_0000`.
-2. Connect a terminal to the UART: `uo_out[4]` is TX, `ui_in[3]` is RX and
-   `uo_out[5]` is RTS# (active low). Use CTS flow control if the terminal has
-   it.
+2. Connect a terminal to the UART: `uo_out[4]` is TX and `ui_in[3]` is RX.
+   For flow control, write `0x0020_0000` to `PINMUX` (code 2, RTS#, on
+   `uo_out[5]`) and use CTS on the terminal side.
 3. Hold `ui_in[0]` at the level the clock frequency needs (see below), and
    `ui_in[2]` low (streaming on; high for streaming off), pulse `rst_n` low,
    and release it. Keep both there until the clock has run for two edges
    after `rst_n` rose; after that they are ordinary inputs, and a reboot
    does not read them again.
 4. The program runs. Until it sets the divisor, the UART runs at the clock
-   frequency divided by 432.
+   frequency divided by 544.
+5. Try the newer blocks: write `1` to `CACHE_CTL` and time a loop with
+   `mcycle`; set a bit of IN_IE and toggle that `ui_in` pin to see the
+   interrupt (poll `mip.MEIP` with `mstatus.MIE` clear, or take the trap);
+   write `0x0020_0000` to `PINMUX` for RTS# on `uo_out[5]`; play a tone on
+   `uo_out[7]` with the PWM.
 
 `ui_in[0]` during reset picks when the chip samples data read from the Pmod:
 low samples two clocks after the SCK edge that launched the data, high samples
 three clocks after. Use high at clock frequencies where two clock periods are
-too short for the data to make the round trip through the pads: high at
-62.5 MHz and 60 MHz, low at 50 MHz and below.
+too short for the data to make the round trip through the pads: low at
+52.6 MHz, the chip's clock (round trips up to about 32 ns; high is the
+fallback), high at 60 MHz and above.
 
-The tests in `test/` run a program that exercises every pin; `test/README.md`
-says how to run them.
+The tests in `test/` run programs that exercise every pin, the flash read
+modes, the instruction cache, the GPIO input interrupt and the pinmux;
+`test/README.md` says how to run them.
 
 ## External hardware
 
@@ -165,10 +251,14 @@ says how to run them.
   B on `uio[7]`.
 * A UART terminal. The Tiny Tapeout demo board's RP2350 can be one.
 * Optional, on the output header: a Digilent PmodOLEDrgb (SSD1331) driven by
-  the SPI controller, or a PmodKYPD keypad scanned through the GPIO pins.
+  the SPI controller (CS# `uo_out[0]`, MOSI `uo_out[1]`, D/C `uo_out[2]`, SCK
+  `uo_out[3]`, RES# and VCCEN `uo_out[6]`, PMODEN tied high), and the a
+  speaker or the Tiny Tapeout Audio Pmod on `uo_out[7]` for the PWM1 tones.
+* Optional, on the input header: the Tiny Tapeout gamepad Pmod on
+  `ui_in[4..6]`.
 * Optional: an SD card (for example a Digilent PmodMicroSD) on the same SPI
   bus: MOSI `uo_out[1]`, SCK `uo_out[3]`, MISO `ui_in[1]` and CS#
-  `uo_out[7]`. With the card fitted, DIP switch 2 must be off. On every boot,
+  `uo_out[5]`. With the card fitted, DIP switch 2 must be off. On every boot,
   before any other SPI traffic, clock at least 74 cycles with every CS# high
   and then send CMD0 to the card, so that it is in SPI mode before the
   display is written.
