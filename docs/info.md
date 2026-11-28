@@ -50,7 +50,7 @@ divisor. The divisor resets to 34, which is 96,749 baud at 52.6 MHz (it was
 sized for 62.5 MHz): a program writes 29 (113,421 baud, -1.54 % from 115200)
 before it prints. A write to the transmit register waits until the holding
 register is free. Its interrupt is PLIC source 1. RTS# is not on a pin by
-default (`uo_out[5]` is the SD card's CS#): select it for `uo_out[5]` in
+default (`uo_out[5]` is GPIO OUT bit 5): select it for `uo_out[5]` in
 `PINMUX` for hardware flow control. RTS# is high while the receive FIFO holds
 seven or more characters (fewer than two free entries) or MCR.RTS is clear, so
 a sender that honours it cannot overrun the FIFO.
@@ -83,13 +83,14 @@ IN_IP bits it served, and completes the claim. `wfi` wakes on an edge. Leave
 IE[3] clear if a UART is on `ui_in[3]` (a start bit is an edge), and IE[6:4]
 clear with a gamepad fitted (they toggle every frame).
 
-**The SPI controller** is a master for an SD card and a display on one bus.
-Its registers behave like OpenCores tiny_spi, so Linux's `spi-oc-tiny` driver
-runs it, with the chip selects on GPIO OUT. With EN set it owns `uo_out[1]`
-(MOSI) and `uo_out[3]` (SCK), and samples MISO on `ui_in[1]`; both outputs
-come from flops. A byte takes 16 x (BAUD + 1) clocks, all four SPI modes
-are supported, and a write to TXDATA while a byte is still waiting stalls
-the processor until there is room. Set EN only with every CS# high.
+**The SPI controller** is one SPI master. Several devices can share its bus,
+each with its own chip select on a GPIO output. Its registers behave like
+OpenCores tiny_spi, so Linux's `spi-oc-tiny` driver runs it, with the chip
+selects on GPIO OUT. With EN set it owns `uo_out[1]` (MOSI) and `uo_out[3]`
+(SCK), and samples MISO on `ui_in[1]`; both outputs come from flops. A byte
+takes 16 x (BAUD + 1) clocks, all four SPI modes are supported, and a write to
+TXDATA while a byte is still waiting stalls the processor until there is room.
+Set EN only with every CS# high.
 
 **The gamepad receiver** reads the Tiny Tapeout gamepad Pmod (one SNES pad):
 LATCH on `ui_in[4]`, CLOCK on `ui_in[5]`, DATA on `ui_in[6]`. It keeps the
@@ -101,15 +102,12 @@ sets when a frame changes the value, and GPSTAT.IE enables its interrupt
 **The pinmux.** Every `uo_out` pin has a default function (the pinout in
 `info.yaml`). Two pins have one alternate function, selected by a 3-bit code in
 the `PINMUX` word at `0x1002_0020`, pin *i* in bits `[4i+2:4i]`: `uo_out[5]`
-code 2 is UART RTS# (code 0 is the SD card's CS#, GPIO OUT bit 5), and
-`uo_out[6]` code 4 is PWM0 (code 0 is the display's RES# and VCCEN, GPIO OUT
-bit 6; the pin drives both of the display's RES# and VCCEN inputs, so
-PWM0 there toggles the display's reset and boost supply enable). `uo_out[7]`
-is always PWM1 and has no code. A code that is not legal for its pin stores 0
-and reads back 0, and the pin keeps its default. The other pins are not
-switchable: they carry the display and SD card SPI lines, the UART's TX, and
-the GPIO OUT bits. All codes reset to 0. Every `uo_out` pin comes from one flop
-after the mux.
+code 2 is UART RTS# (code 0 is GPIO OUT bit 5), and `uo_out[6]` code 4 is
+PWM0 (code 0 is GPIO OUT bit 6). `uo_out[7]` is always PWM1 and has no code. A
+code that is not legal for its pin stores 0 and reads back 0, and the pin keeps
+its default. The other pins are not switchable: they carry the SPI lines, the
+UART's TX, and the GPIO OUT bits. All codes reset to 0. Every `uo_out` pin
+comes from one flop after the mux.
 
 **The timer/PWM** at `0x1003_0000` has the register layout of SiFive's pwm0
 (Linux's `pwm-sifive` drives it): a scaled 16-bit counter and two built
@@ -209,7 +207,9 @@ with the clock running or stopped, and the chip leaves reset on the second
 clock edge after `rst_n` rises. While it is in reset all eight bidirectional
 pins are inputs, so the flash can be programmed from outside with the chip
 held in reset, and the outputs hold their idle values: `uo_out` = `0x39`
-(OLED CS#, SCK, UART TX and SD CS# high, the rest low), and GPIO OUT `0xB9`.
+(`uo_out[0]`, SCK, UART TX and `uo_out[5]` high, the rest low), and GPIO OUT
+`0xB9`. `uo_out[0]` and `uo_out[5]` are therefore the natural choice for
+active-low chip selects.
 A reboot from the system controller or the watchdog looks the same at the
 pins.
 
@@ -250,15 +250,20 @@ modes, the instruction cache, the GPIO input interrupt and the pinmux;
   bidirectional pins (required): flash on `uio[0]`, PSRAM A on `uio[6]`, PSRAM
   B on `uio[7]`.
 * A UART terminal. The Tiny Tapeout demo board's RP2350 can be one.
-* Optional, on the output header: a Digilent PmodOLEDrgb (SSD1331) driven by
-  the SPI controller (CS# `uo_out[0]`, MOSI `uo_out[1]`, D/C `uo_out[2]`, SCK
-  `uo_out[3]`, RES# and VCCEN `uo_out[6]`, PMODEN tied high), and the a
-  speaker or the Tiny Tapeout Audio Pmod on `uo_out[7]` for the PWM1 tones.
-* Optional, on the input header: the Tiny Tapeout gamepad Pmod on
-  `ui_in[4..6]`.
-* Optional: an SD card (for example a Digilent PmodMicroSD) on the same SPI
-  bus: MOSI `uo_out[1]`, SCK `uo_out[3]`, MISO `ui_in[1]` and CS#
-  `uo_out[5]`. With the card fitted, DIP switch 2 must be off. On every boot,
-  before any other SPI traffic, clock at least 74 cycles with every CS# high
-  and then send CMD0 to the card, so that it is in SPI mode before the
-  display is written.
+Everything else is optional; the chip does not assume any of it.
+
+* **SPI devices**: anything with an SPI interface, for example a display
+  (SSD1331 OLED, ILI9341 TFT), an SD card in SPI mode, or a W5500 Ethernet
+  controller. The bus is MOSI `uo_out[1]`, SCK `uo_out[3]` and MISO
+  `ui_in[1]`. Each device's chip select, and any control line it needs (a
+  display's data/command or reset), goes on a free GPIO output; `uo_out[0]`
+  and `uo_out[5]` idle high. A device's interrupt output can go on a free
+  `ui_in` pin with the GPIO input-change interrupt. For a device that drives
+  MISO, the input on `ui_in[1]` must not be pulled or driven by anything else
+  (on the Tiny Tapeout demo board, its DIP switch off). An SD card must see at
+  least 74 clocks with every CS# high, then CMD0, before any other device on
+  the bus is addressed.
+* **Tones**: a speaker or the Tiny Tapeout Audio Pmod on `uo_out[7]` (PWM1).
+* **Gamepad**: the Tiny Tapeout gamepad Pmod on `ui_in[4..6]`.
+* **GPIO**: any `ui_in` pin not used above is a GPIO input, and any
+  `uo_out[0..3,5,6]` pin not used above is a GPIO output.

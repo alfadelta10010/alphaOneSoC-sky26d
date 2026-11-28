@@ -50,7 +50,7 @@ project:
 pinout:
   # Inputs
   ui[0]: "QSPI read-latency strap (during reset) / GPIO in 0"
-  ui[1]: "GPIO in 1 / SPI MISO"
+  ui[1]: "SPI MISO / GPIO in 1"
   ui[2]: "No-stream strap (during reset): 1 = flash streaming off / GPIO in 2"
   ui[3]: "UART RX"
   ui[4]: "Gamepad LATCH / GPIO in 4"
@@ -59,13 +59,13 @@ pinout:
   ui[7]: "GPIO in 7"
 
   # Outputs (uo[5] to uo[7] have one alternate function each, selected by the PINMUX register)
-  uo[0]: "OLED CS# / GPIO out 0"
-  uo[1]: "OLED and SD MOSI / GPIO out 1 / SPI MOSI"
-  uo[2]: "OLED D/C / GPIO out 2"
-  uo[3]: "OLED and SD SCK / GPIO out 3 / SPI SCK"
+  uo[0]: "GPIO out 0 (idle high, e.g. an SPI CS#)"
+  uo[1]: "SPI MOSI / GPIO out 1"
+  uo[2]: "GPIO out 2"
+  uo[3]: "SPI SCK / GPIO out 3"
   uo[4]: "UART TX"
-  uo[5]: "SD card CS# / GPIO out 5 (alternate: UART RTS#)"
-  uo[6]: "OLED RES# and VCCEN / GPIO out 6 (alternate: PWM0)"
+  uo[5]: "GPIO out 5 (idle high, e.g. an SPI CS#) (alternate: UART RTS#)"
+  uo[6]: "GPIO out 6 (alternate: PWM0)"
   uo[7]: "PWM1 (idle low; plays tones)"
 
   # Bidirectional pins
